@@ -1,0 +1,12 @@
+.env
+.env.local
+__pycache__/
+*.py[cod]
+venv/
+.vscode/
+.idea/
+.DS_Store
+*.db
+uploads/
+.claude/settings.json
+.claude/settings.local.json

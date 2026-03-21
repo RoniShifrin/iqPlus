@@ -1,0 +1,46 @@
+version: '3.9'
+
+services:
+  backend:
+    build:
+      context: ../BACK
+      dockerfile: Dockerfile
+    container_name: iqplus_api
+    environment:
+      MONGODB_URL: ${MONGODB_URL}
+      DB_NAME: ${DB_NAME:-iqplus_db}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
+      FIREBASE_PRIVATE_KEY: ${FIREBASE_PRIVATE_KEY}
+      FIREBASE_CLIENT_EMAIL: ${FIREBASE_CLIENT_EMAIL}
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../BACK/app:/app/app
+    networks:
+      - iqplus
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+  frontend:
+    build:
+      context: ../FRONT
+      dockerfile: Dockerfile
+    container_name: iqplus_web
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+      VITE_FIREBASE_CONFIG: ${VITE_FIREBASE_CONFIG}
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    networks:
+      - iqplus
+    command: npm run dev
+
+networks:
+  iqplus:
+    driver: bridge

@@ -1,0 +1,121 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
+}
+
+/* ── CSS Variables — page & sidebar backgrounds ─────────────────────────── */
+:root {
+  --bg-page:    #eef2f7;
+  --bg-sidebar: linear-gradient(180deg, #1b3d6f 0%, #1e4e8c 100%);
+}
+.dark {
+  --bg-page:    #0f172a;
+  --bg-sidebar: linear-gradient(180deg, #0d1b2e 0%, #152744 100%);
+  color-scheme: dark;
+}
+
+/* ── Dark mode: global Tailwind-class overrides ──────────────────────────
+   .dark + .class-name gives specificity [0,2,0] which beats
+   Tailwind's single-class specificity [0,1,0] — no !important needed.    */
+
+/* Backgrounds */
+.dark .bg-white     { background-color: #1e293b; }
+.dark .bg-gray-50   { background-color: #0f172a; }
+.dark .bg-gray-100  { background-color: #1e293b; }
+.dark .bg-gray-200  { background-color: #334155; }
+
+/* Text */
+.dark .text-gray-900 { color: #f8fafc; }
+.dark .text-gray-800 { color: #f1f5f9; }
+.dark .text-gray-700 { color: #cbd5e1; }
+.dark .text-gray-600 { color: #94a3b8; }
+.dark .text-gray-500 { color: #64748b; }
+.dark .text-gray-400 { color: #475569; }
+.dark .text-gray-300 { color: #334155; }
+
+/* Borders */
+.dark .border-gray-50  { border-color: #1e293b; }
+.dark .border-gray-100 { border-color: #334155; }
+.dark .border-gray-200 { border-color: #475569; }
+.dark .border-gray-300 { border-color: #4b5563; }
+
+/* Dividers */
+.dark .divide-gray-50  > * + * { border-color: #1e293b; }
+.dark .divide-gray-100 > * + * { border-color: #334155; }
+
+/* Inputs, textareas, selects */
+.dark input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+.dark textarea,
+.dark select {
+  background-color: #1e293b;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+.dark input::placeholder,
+.dark textarea::placeholder { color: #64748b; }
+
+/* Shadows */
+.dark .shadow-sm  { box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.4); }
+.dark .shadow     { box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.5), 0 1px 2px -1px rgb(0 0 0 / 0.5); }
+.dark .shadow-lg  { box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.5), 0 4px 6px -4px rgb(0 0 0 / 0.5); }
+
+/* Hover states */
+.dark .hover\:bg-gray-50:hover  { background-color: #1e293b; }
+.dark .hover\:bg-gray-100:hover { background-color: #334155; }
+.dark .hover\:bg-gray-200:hover { background-color: #475569; }
+
+/* Coloured accent backgrounds */
+.dark .bg-blue-50     { background-color: #0c1a2e; }
+.dark .bg-blue-100    { background-color: #1e3a5f; }
+.dark .bg-green-50    { background-color: #0a1f12; }
+.dark .bg-green-100   { background-color: #14532d; }
+.dark .bg-red-50      { background-color: #1f0a0a; }
+.dark .bg-red-100     { background-color: #7f1d1d; }
+.dark .bg-yellow-50   { background-color: #1c1204; }
+.dark .bg-yellow-100  { background-color: #713f12; }
+.dark .bg-orange-100  { background-color: #431407; }
+.dark .bg-purple-50   { background-color: #1c0a2c; }
+.dark .bg-purple-100  { background-color: #4c1d95; }
+.dark .bg-amber-50    { background-color: #1c1204; }
+
+/* Accent text that's too light on dark backgrounds */
+.dark .border-blue-100   { border-color: #1e3a5f; }
+.dark .border-amber-200  { border-color: #92400e; }
+
+/* Topbar bg (header) */
+.dark header.bg-white { background-color: #1e293b; }
+
+/* ── RTL layout fixes ────────────────────────────────────────────────────
+   When dir="rtl", flex-row reverses direction automatically (sidebar to
+   right, content to left) which is correct for Hebrew.
+   The only fix needed is spacing and specific alignment overrides.         */
+
+/* Keep table cell text aligned correctly in RTL */
+[dir="rtl"] th,
+[dir="rtl"] td { text-align: right; }
+
+/* In RTL, "ml-auto" should behave as "mr-auto" — handled by browser */
+
+/* Prevent SVG icons from flipping in RTL (they're layout-neutral) */
+[dir="rtl"] svg { transform: none; }
+
+/* Correct badge/tag alignment in RTL flex rows */
+[dir="rtl"] .flex-row-reverse { flex-direction: row; }

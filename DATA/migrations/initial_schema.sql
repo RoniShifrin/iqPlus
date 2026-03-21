@@ -1,0 +1,14 @@
+-- NOTE: This project uses MongoDB Atlas (NoSQL) — SQL schema is not applicable.
+-- Collections are managed by Beanie ODM (Python) and created automatically.
+--
+-- Collections:
+--   users            - firebase_uid (unique), email (unique), role, is_active
+--   courses          - code (unique), name, teacher_id, schedule, capacity
+--   enrollments      - student_id, course_id (unique pair), status
+--   grades           - student_id, course_id, score, subject, recorded_at
+--   attendance       - student_id, course_id, date, status, remarks
+--   feedback         - student_id, course_id, sentiment, content
+--   learning_insights - student_id, course_id, insight_type, summary, email_sent
+--
+-- To set up: run DATA/migrations/001_initial_schema.py
+-- MongoDB Atlas connection: mongodb+srv://ronishifrin_db_user:<db_password>@iqplusdatabase.t6nh8ub.mongodb.net/
