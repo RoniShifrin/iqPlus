@@ -99,6 +99,8 @@ else:
         "http://127.0.0.1:5174",
         "http://127.0.0.1:5175",
         "http://127.0.0.1:3000",
+        "https://iqplus-prod-3d7o.vercel.app",
+        "https://iqplus-prod-3d7o-shifrin-s-projects.vercel.app",
     ]
     cors_credentials = True
 

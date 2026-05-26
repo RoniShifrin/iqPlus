@@ -30,7 +30,7 @@ BACK_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACK_DIR))
 
 from dotenv import load_dotenv
-load_dotenv(dotenv_path=BACK_DIR.parent / ".env")
+load_dotenv(dotenv_path=BACK_DIR / ".env")
 
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorClient
