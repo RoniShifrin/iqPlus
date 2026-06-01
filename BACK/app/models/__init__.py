@@ -155,6 +155,7 @@ class Course(Document):
     capacity: int = 30
     status: CourseStatusEnum = CourseStatusEnum.DRAFT
     visibility_scope: VisibilityScopeEnum = VisibilityScopeEnum.SCHOOL_ONLY
+    scoring_weights: Optional[dict] = None  # {'grades': 50, 'attendance': 20, 'feedback': 20, 'trend': 10}
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     deleted_at: Optional[datetime] = None

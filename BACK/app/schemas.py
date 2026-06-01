@@ -1,5 +1,5 @@
 """Pydantic schemas for request/response validation"""
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, model_validator
 from typing import Optional, List, Any
 from datetime import datetime
 
@@ -63,6 +63,21 @@ class AvatarResponse(BaseModel):
 
 # ==================== Course Schemas ====================
 
+class ScoringWeights(BaseModel):
+    """Per-course composite score weights. All values are percentages; must sum to 100."""
+    grades: float = Field(50.0, ge=0)
+    attendance: float = Field(20.0, ge=0)
+    feedback: float = Field(20.0, ge=0)
+    trend: float = Field(10.0, ge=0)
+
+    @model_validator(mode='after')
+    def _weights_sum_to_100(self) -> 'ScoringWeights':
+        total = self.grades + self.attendance + self.feedback + self.trend
+        if abs(total - 100.0) > 0.01:
+            raise ValueError(f'Scoring weights must sum to 100 (got {total:.2f})')
+        return self
+
+
 class CourseCreate(BaseModel):
     code: str = Field(..., min_length=1, max_length=50)
     name: str = Field(..., min_length=1, max_length=200)
@@ -71,6 +86,7 @@ class CourseCreate(BaseModel):
     capacity: int = Field(30, ge=1, le=500)
     visibility_scope: str = Field("school_only", pattern="^(public|school_only|teacher_only)$")
     teacher_id: Optional[str] = None  # Admin-only: assign a specific teacher
+    scoring_weights: Optional[ScoringWeights] = None
 
 class CourseUpdate(BaseModel):
     name: Optional[str] = Field(None, max_length=200)
@@ -78,6 +94,7 @@ class CourseUpdate(BaseModel):
     schedule: Optional[dict] = None
     capacity: Optional[int] = Field(None, ge=1, le=500)
     visibility_scope: Optional[str] = Field(None, pattern="^(public|school_only|teacher_only)$")
+    scoring_weights: Optional[ScoringWeights] = None
 
 class CourseResponse(BaseModel):
     id: str
@@ -90,6 +107,7 @@ class CourseResponse(BaseModel):
     capacity: int
     status: str
     visibility_scope: str
+    scoring_weights: Optional[dict] = None
     created_at: datetime
 
     class Config:

@@ -47,6 +47,7 @@ class PlannerRequest(BaseModel):
     course_ids:  List[str]          = Field(..., min_length=2, max_length=20)
     preferences: PlannerPreferences = Field(default_factory=PlannerPreferences)
     student_id:  Optional[str]      = None   # parent providing linked child id
+    language:    str                = "en"
 
 
 # ── Schedule math ─────────────────────────────────────────────────────────────
@@ -225,6 +226,7 @@ def _analyze_workload(
     courses: List[Course],
     prefs: PlannerPreferences,
     student_ctx: Dict[str, Any],
+    language: str = "en",
 ) -> Dict[str, Any]:
     """Return detailed per-day and weekly workload analysis."""
     day_map: Dict[str, List[Dict]] = {}
@@ -294,21 +296,23 @@ def _analyze_workload(
     # Combine with existing workload
     existing_load = student_ctx.get("workload_level", "unknown")
 
+    from app.services.ai_messages import msg as _msg
     # Summary text
     parts = []
     if weekly_hours > 0:
-        parts.append(f"This plan adds {weekly_hours:.1f} weekly hours across {len(day_map)} day(s).")
+        parts.append(_msg("pl.wl.adds_hours", language, h=weekly_hours, days=len(day_map)))
     if overloaded_days:
-        parts.append(f"{'Day' if len(overloaded_days)==1 else 'Days'} exceeding your {prefs.max_hours_per_day}h limit: {', '.join(overloaded_days)}.")
+        overload_key = "pl.wl.overloaded_one" if len(overloaded_days) == 1 else "pl.wl.overloaded_many"
+        parts.append(_msg(overload_key, language, max_h=prefs.max_hours_per_day, days_list=", ".join(overloaded_days)))
     elif weekly_hours > 0:
-        parts.append("All days stay within your maximum hours per day.")
+        parts.append(_msg("pl.wl.within_limit", language))
     if prefs.preferred_free_day:
         if free_day_respected:
-            parts.append(f"{prefs.preferred_free_day} remains free as preferred.")
+            parts.append(_msg("pl.wl.free_day_ok", language, day=prefs.preferred_free_day))
         else:
-            parts.append(f"Note: {prefs.preferred_free_day} is not free in this plan.")
+            parts.append(_msg("pl.wl.free_day_no", language, day=prefs.preferred_free_day))
     if existing_load in ("heavy", "very_heavy") and len(courses) >= 3:
-        parts.append("Combined with your current enrolled courses, this may be a demanding schedule.")
+        parts.append(_msg("pl.wl.heavy_combo", language))
 
     return {
         "weekly_hours":       round(weekly_hours, 1),
@@ -317,7 +321,7 @@ def _analyze_workload(
         "overloaded_days":    overloaded_days,
         "free_day_respected": free_day_respected,
         "balanced":           len(overloaded_days) == 0,
-        "summary_text":       " ".join(parts) or "No schedule data available.",
+        "summary_text":       " ".join(parts) or _msg("pl.wl.no_data", language),
     }
 
 def _fmt_h(h: float) -> str:
@@ -334,8 +338,10 @@ def _predict_risks(
     student_ctx: Dict[str, Any],
     prefs: PlannerPreferences,
     workload: Dict[str, Any],
+    language: str = "en",
 ) -> List[Dict[str, Any]]:
     """Generate risk warnings from student context + selected schedule."""
+    from app.services.ai_messages import msg as _msg
     warnings: List[Dict[str, Any]] = []
 
     avg_score = student_ctx.get("avg_score")
@@ -344,86 +350,78 @@ def _predict_risks(
     workload_level = student_ctx.get("workload_level", "unknown")
     active_count = len(student_ctx.get("active_course_ids", set()))
 
-    # 1. Too many courses overall
     if active_count + len(courses) > prefs.max_courses + 2:
         warnings.append({
             "severity": "warning",
             "course_id": None,
-            "message": f"Adding {len(courses)} course(s) to your existing {active_count} will likely create a heavy schedule. Consider starting with fewer courses.",
+            "message": _msg("pl.risk.too_many", language, new=len(courses), existing=active_count),
         })
 
-    # 2. Low average performance
     if avg_score is not None and avg_score < 60:
         warnings.append({
             "severity": "warning",
             "course_id": None,
-            "message": f"Your current average performance score is {avg_score:.0f}/100. Taking multiple new courses may add pressure. We recommend starting with 1-2 new courses.",
+            "message": _msg("pl.risk.low_avg", language, avg=avg_score),
         })
 
-    # 3. Existing high-risk predictions in enrolled courses
     high_risk = [cid for cid, lvl in risk_levels.items() if lvl in ("high",)]
     medium_risk = [cid for cid, lvl in risk_levels.items() if lvl == "medium"]
     if high_risk:
         warnings.append({
             "severity": "critical",
             "course_id": None,
-            "message": f"You are currently flagged as high-risk in {len(high_risk)} enrolled course(s). Adding new courses now may make it harder to recover your performance.",
+            "message": _msg("pl.risk.high_risk_enrolled", language, n=len(high_risk)),
         })
     elif medium_risk:
         warnings.append({
             "severity": "warning",
             "course_id": None,
-            "message": f"You have medium-risk predictions in {len(medium_risk)} enrolled course(s). Keep your new course load manageable.",
+            "message": _msg("pl.risk.medium_risk_enrolled", language, n=len(medium_risk)),
         })
 
-    # 4. Recent critical AI alerts
     critical_alerts = [a for a in recent_alerts if a.get("level") == "critical"]
     if critical_alerts:
         warnings.append({
             "severity": "critical",
             "course_id": critical_alerts[0].get("course_id"),
-            "message": f"A critical alert was recently raised: \"{critical_alerts[0]['message'][:120]}\" — please review your current academic status before taking on more courses.",
+            "message": _msg("pl.risk.critical_alert", language, alert_msg=critical_alerts[0]["message"][:120]),
         })
     elif recent_alerts:
         warnings.append({
             "severity": "info",
             "course_id": None,
-            "message": "You have recent AI alerts in your academic record. Check them in your dashboard before finalizing your plan.",
+            "message": _msg("pl.risk.recent_alerts", language),
         })
 
-    # 5. Overloaded days
     for day in workload.get("overloaded_days", []):
         info = workload["days"].get(day, {})
         warnings.append({
             "severity": "warning",
             "course_id": None,
-            "message": f"{day} is overloaded with {info.get('hours', 0)}h of classes, exceeding your {prefs.max_hours_per_day}h daily limit.",
+            "message": _msg("pl.risk.day_overloaded", language, day=day, hours=info.get("hours", 0), max_h=prefs.max_hours_per_day),
         })
 
-    # 6. Consecutive classes
     for day, info in workload.get("days", {}).items():
         if info.get("consecutive_blocks", 0) >= 2:
             warnings.append({
                 "severity": "info",
                 "course_id": None,
-                "message": f"{day} has {info['consecutive_blocks']} consecutive class blocks with little or no break. Consider if this is sustainable for you.",
+                "message": _msg("pl.risk.consecutive", language, day=day, blocks=info["consecutive_blocks"]),
             })
 
-    # 7. Very heavy overall workload
     if workload_level == "very_heavy":
         warnings.append({
             "severity": "warning",
             "course_id": None,
-            "message": "You are already enrolled in many courses. Adding more may make it very difficult to maintain quality performance across all of them.",
+            "message": _msg("pl.risk.very_heavy", language),
         })
 
-    # 8. No schedule data for some courses
     no_schedule = [c.name for c in courses if not c.schedule]
     if no_schedule:
         warnings.append({
             "severity": "info",
             "course_id": None,
-            "message": f"No schedule data for: {', '.join(no_schedule)}. These courses could not be fully analyzed for conflicts or workload.",
+            "message": _msg("pl.risk.no_schedule", language, courses=", ".join(no_schedule)),
         })
 
     return warnings
@@ -506,6 +504,7 @@ def _explain_combination(
     student_ctx: Dict[str, Any],
     workload: Dict[str, Any],
     risks: List[Dict],
+    language: str = "en",
 ) -> str:
     names = [c.name for c in courses]
     preferred = set(prefs.preferred_days)
@@ -520,55 +519,47 @@ def _explain_combination(
     critical = [r for r in risks if r["severity"] == "critical"]
     weekly_h = workload.get("weekly_hours", 0)
 
+    from app.services.ai_messages import msg as _msg
     parts: List[str] = []
 
-    # Opening statement
     if rank == 1:
-        if score >= 70:
-            parts.append("This is your best schedule option.")
-        else:
-            parts.append("This is the highest-scoring valid combination found.")
+        parts.append(_msg("pl.exp.rank1_high" if score >= 70 else "pl.exp.rank1_low", language))
     elif rank == 2:
-        parts.append("This is a good alternative schedule.")
+        parts.append(_msg("pl.exp.rank2", language))
     else:
-        parts.append("This is a valid backup option.")
+        parts.append(_msg("pl.exp.rank_other", language))
 
-    # Courses
     if len(names) == 1:
-        parts.append(f"It includes {names[0]}.")
+        parts.append(_msg("pl.exp.one_course", language, name=names[0]))
     else:
-        parts.append(f"It includes {len(names)} courses: {', '.join(names)}.")
+        parts.append(_msg("pl.exp.multi_courses", language, n=len(names), names=", ".join(names)))
 
-    # Schedule fit
     if matched:
-        parts.append(f"Covers your preferred days: {', '.join(sorted(matched))}.")
+        parts.append(_msg("pl.exp.preferred_days", language, days=", ".join(sorted(matched))))
     if prefs.preferred_free_day and prefs.preferred_free_day not in days_covered:
-        parts.append(f"{prefs.preferred_free_day} stays free as requested.")
+        parts.append(_msg("pl.exp.free_day_ok", language, day=prefs.preferred_free_day))
 
-    # Workload
     if weekly_h > 0:
         if workload["balanced"]:
-            parts.append(f"Weekly load: {weekly_h:.1f}h, balanced across {len(workload['days'])} day(s).")
+            parts.append(_msg("pl.exp.workload_balanced", language, h=weekly_h, days=len(workload["days"])))
         else:
             bad = workload.get("overloaded_days", [])
-            parts.append(f"Weekly load: {weekly_h:.1f}h. Watch out for {', '.join(bad)} — exceeds your daily limit.")
+            parts.append(_msg("pl.exp.workload_overload", language, h=weekly_h, overloaded=", ".join(bad)))
 
-    # Academic context
     if level == "full" and avg is not None:
         if avg >= 80:
-            parts.append(f"Based on your strong academic record (avg score: {avg:.0f}), this plan should be manageable.")
+            parts.append(_msg("pl.exp.academic_strong", language, avg=avg))
         elif avg >= 65:
-            parts.append(f"Your recent academic performance (avg: {avg:.0f}) suggests you can handle this load with regular effort.")
+            parts.append(_msg("pl.exp.academic_good", language, avg=avg))
         else:
-            parts.append(f"Your current academic average is {avg:.0f}. Focus on quality over quantity — this plan is achievable but requires commitment.")
+            parts.append(_msg("pl.exp.academic_low", language, avg=avg))
     elif level == "partial":
-        parts.append("Recommendation includes partial academic context.")
+        parts.append(_msg("pl.exp.partial_ctx", language))
     else:
-        parts.append("Recommendation is based on schedule fit only (academic history is limited).")
+        parts.append(_msg("pl.exp.schedule_only", language))
 
-    # Risk note
     if critical:
-        parts.append("Note: critical risk warnings apply — review them before requesting these courses.")
+        parts.append(_msg("pl.exp.critical_risk", language))
 
     return " ".join(parts)
 
@@ -581,6 +572,7 @@ async def _compute_recommendations(
     active_course_ids: set,
     student_ctx: Dict[str, Any],
     prefs: PlannerPreferences,
+    language: str = "en",
 ) -> List[Dict[str, Any]]:
     """
     For each published course not yet enrolled, compute a fit score and reasons.
@@ -608,6 +600,8 @@ async def _compute_recommendations(
 
     scored: List[Dict] = []
 
+    from app.services.ai_messages import msg as _msg
+
     for course in all_courses:
         cid = str(course.id)
         if cid in active_course_ids:
@@ -617,75 +611,67 @@ async def _compute_recommendations(
         warnings: List[str] = []
         fit_score = 50.0
 
-        # 1. Schedule conflict vs current enrollments
         has_conflict = any(_courses_conflict(course, ec) for ec in enrolled_courses)
         if has_conflict:
             fit_score -= 40
-            warnings.append("This course conflicts with one of your current enrollments.")
+            warnings.append(_msg("pl.rec.conflict", language))
         else:
             fit_score += 20
-            reasons.append("No schedule conflict with your current courses.")
+            reasons.append(_msg("pl.rec.no_conflict", language))
 
-        # 2. Preferred days
         s = course.schedule or {}
         course_days = set(s.get("days", []))
         if prefs.preferred_days:
             matched = course_days & set(prefs.preferred_days)
             if matched:
                 fit_score += 10
-                reasons.append(f"Runs on your preferred days ({', '.join(sorted(matched))}).")
+                reasons.append(_msg("pl.rec.preferred_days", language, days=", ".join(sorted(matched))))
         if prefs.preferred_free_day and prefs.preferred_free_day in course_days:
             fit_score -= 10
-            warnings.append(f"Uses your preferred free day ({prefs.preferred_free_day}).")
+            warnings.append(_msg("pl.rec.free_day_used", language, day=prefs.preferred_free_day))
 
-        # 3. Time preferences
         start_h = _parse_h(s.get("start_time",""))
         end_h   = _parse_h(s.get("end_time",""))
         if prefs.avoid_early and start_h > 0 and start_h < 9.0:
             fit_score -= 12
-            warnings.append("Starts before 09:00 (early morning).")
+            warnings.append(_msg("pl.rec.too_early", language))
         if prefs.avoid_late and end_h > 0 and end_h > 20.0:
             fit_score -= 12
-            warnings.append("Ends after 20:00 (late evening).")
+            warnings.append(_msg("pl.rec.too_late", language))
 
-        # 4. Workload impact
         dur = _duration(s.get("start_time",""), s.get("end_time",""))
         for day in course_days:
             new_day_total = existing_hpd.get(day, 0) + dur
             if new_day_total > prefs.max_hours_per_day:
                 fit_score -= 8
-                warnings.append(f"Would bring {day} over your {prefs.max_hours_per_day}h daily limit.")
+                warnings.append(_msg("pl.rec.day_overloaded", language, day=day, max_h=prefs.max_hours_per_day))
                 break
         else:
             if dur > 0:
-                reasons.append(f"Fits within your daily hour limit ({dur:.1f}h).")
+                reasons.append(_msg("pl.rec.fits_limit", language, dur=dur))
 
-        # 5. Academic fit (personalized)
         if level in ("full", "partial") and avg is not None:
-            # check if student is currently risk-flagged anywhere
             high_risk_count = sum(1 for lvl in risk_levels.values() if lvl == "high")
             if high_risk_count >= 2:
                 fit_score -= 15
-                warnings.append("Your performance is flagged as high-risk in multiple courses.")
+                warnings.append(_msg("pl.rec.high_risk_multi", language))
             elif avg >= 75:
                 fit_score += 10
-                reasons.append(f"Your strong academic average ({avg:.0f}) suggests you can handle this.")
+                reasons.append(_msg("pl.rec.strong_avg", language, avg=avg))
             elif avg < 55:
                 fit_score -= 8
-                warnings.append("Your current average is below 55 — adding more courses may be challenging.")
+                warnings.append(_msg("pl.rec.low_avg", language))
 
-            # Positive feedback in this specific course area
             sent = feedback_sent.get(cid)
             if sent == "positive":
                 fit_score += 8
-                reasons.append("You have positive feedback history in this course.")
+                reasons.append(_msg("pl.rec.pos_feedback", language))
             elif sent == "negative":
                 fit_score -= 10
-                warnings.append("Recent feedback in this course was negative.")
+                warnings.append(_msg("pl.rec.neg_feedback", language))
 
-        # 6. Fallback reason if nothing else
         if not reasons:
-            reasons.append("Schedule fit evaluated based on your preferences.")
+            reasons.append(_msg("pl.rec.schedule_fit", language))
 
         # Category
         if fit_score >= 70:
@@ -743,8 +729,10 @@ async def analyze_schedule(
 
 
 async def _analyze_schedule_inner(body: PlannerRequest, current_user: User):
+    from app.services.ai_messages import msg as _msg
     student_id, is_parent = await _resolve_student_id(body.student_id, current_user)
     prefs = body.preferences
+    language = body.language or "en"
 
     # Fetch requested courses (published only)
     courses: List[Course] = []
@@ -760,9 +748,9 @@ async def _analyze_schedule_inner(body: PlannerRequest, current_user: User):
             courses.append(c)
 
     if len(courses) < 2:
-        detail = "Need at least 2 published courses to analyze."
+        detail = _msg("pl.msg.not_enough", language)
         if invalid_ids:
-            detail += f" ({len(invalid_ids)} invalid course ID(s) were skipped.)"
+            detail += _msg("pl.msg.invalid_ids", language, n=len(invalid_ids))
         return {
             "combinations": [], "total_valid": 0, "selected_count": len(courses),
             "conflicts": [], "global_workload": None, "global_risk_warnings": [],
@@ -810,9 +798,8 @@ async def _analyze_schedule_inner(body: PlannerRequest, current_user: User):
         })
 
     if not valid_combos:
-        # All conflict — compute workload on full selection anyway for display
-        workload = _analyze_workload(courses, prefs, student_ctx)
-        risks    = _predict_risks(courses, student_ctx, prefs, workload)
+        workload = _analyze_workload(courses, prefs, student_ctx, language)
+        risks    = _predict_risks(courses, student_ctx, prefs, workload, language)
         return {
             "combinations": [],
             "total_valid": 0,
@@ -821,7 +808,7 @@ async def _analyze_schedule_inner(body: PlannerRequest, current_user: User):
             "global_workload": workload,
             "global_risk_warnings": risks,
             "personalization_level": p_level,
-            "message": "All selected courses conflict with each other. No valid schedule found. Try removing conflicting courses.",
+            "message": _msg("pl.msg.all_conflict", language),
         }
 
     # Score + rank
@@ -844,9 +831,9 @@ async def _analyze_schedule_inner(body: PlannerRequest, current_user: User):
     result_combos = []
     for rank, combo in enumerate(top3, 1):
         score    = _score_combination(combo, prefs, student_ctx)
-        workload = _analyze_workload(combo, prefs, student_ctx)
-        risks    = _predict_risks(combo, student_ctx, prefs, workload)
-        expl     = _explain_combination(combo, score, prefs, rank, student_ctx, workload, risks)
+        workload = _analyze_workload(combo, prefs, student_ctx, language)
+        risks    = _predict_risks(combo, student_ctx, prefs, workload, language)
+        expl     = _explain_combination(combo, score, prefs, rank, student_ctx, workload, risks, language)
         combo_ids = {str(c.id) for c in combo}
 
         result_combos.append({
@@ -870,14 +857,11 @@ async def _analyze_schedule_inner(body: PlannerRequest, current_user: User):
         })
 
     # Overall workload + risks for full selection (for the global summary panel)
-    global_workload = _analyze_workload(top3[0] if top3 else courses, prefs, student_ctx)
-    global_risks    = _predict_risks(top3[0] if top3 else courses, student_ctx, prefs, global_workload)
+    global_workload = _analyze_workload(top3[0] if top3 else courses, prefs, student_ctx, language)
+    global_risks    = _predict_risks(top3[0] if top3 else courses, student_ctx, prefs, global_workload, language)
 
-    msg = (
-        f"Found {len(valid_combos)} valid combination(s). "
-        f"Showing top {len(result_combos)}. "
-        f"{'Personalized using your academic data.' if p_level == 'full' else 'Based on schedule fit.'}"
-    )
+    msg_key = "pl.msg.found_full" if p_level == "full" else "pl.msg.found_other"
+    msg = _msg(msg_key, language, total=len(valid_combos), top=len(result_combos))
 
     return {
         "combinations":         result_combos,
@@ -899,6 +883,7 @@ async def get_recommendations(
     avoid_early:   bool          = Query(default=False),
     avoid_late:    bool          = Query(default=False),
     max_hours_day: float         = Query(default=6.0, ge=0.5, le=24.0),
+    language:      str           = Query(default="en"),
     current_user:  User          = Depends(get_current_user),
 ):
     """
@@ -929,14 +914,16 @@ async def get_recommendations(
             active_course_ids=active_ids,
             student_ctx=student_ctx,
             prefs=prefs,
+            language=language,
         )
 
+        from app.services.ai_messages import msg as _msg
         if p_level == "schedule_only":
-            msg = "Recommendations based on schedule fit only — no academic history found."
+            msg = _msg("pl.msg.recs_schedule_only", language)
         elif p_level == "partial":
-            msg = "Recommendations include partial academic context."
+            msg = _msg("pl.msg.recs_partial", language)
         else:
-            msg = "Recommendations personalized using your academic history."
+            msg = _msg("pl.msg.recs_full", language)
 
         return {
             "recommendations":     recs,

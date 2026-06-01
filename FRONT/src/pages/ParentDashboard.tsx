@@ -718,7 +718,7 @@ export const ParentDashboard: React.FC = () => {
                       <EmptyState icon="📅" title={t('parent.noSchedule')} />
                     )}
                     {scheduleSlots.length > 0 && (
-                      <button onClick={() => navigate('/courses')} className="text-blue-600 text-xs hover:underline mt-2">{t('parent.viewFullSchedule')}</button>
+                      <button onClick={() => navigate('/schedule')} className="text-blue-600 text-xs hover:underline mt-2">{t('parent.viewFullSchedule')}</button>
                     )}
                   </div>
 

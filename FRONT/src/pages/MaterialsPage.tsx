@@ -4,8 +4,6 @@ import { useApp } from '../contexts/AppContext';
 import { useAuth } from '../contexts/AuthContext';
 import { apiService } from '../services/apiService';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
-
 interface MaterialRow {
   id: string;
   course_id: string;
@@ -23,11 +21,27 @@ const getExt = (url?: string): string => {
   return seg.length <= 5 ? seg.toUpperCase() : '';
 };
 
+function triggerBlobDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 // Shared row renderer used by both table components
-const MaterialActionCell: React.FC<{ m: MaterialRow; t: (k: string) => string; apiUrl: string }> = ({ m, t, apiUrl }) => {
+const MaterialActionCell: React.FC<{
+  m: MaterialRow;
+  t: (k: string) => string;
+  onDownload: (m: MaterialRow) => void;
+  downloading: string | null;
+}> = ({ m, t, onDownload, downloading }) => {
   const isFile = !!m.file_url;
   const ext    = isFile ? getExt(m.file_url) : 'LINK';
-  const href   = isFile ? `${apiUrl}${m.file_url}` : m.link_url;
+  const isLoading = downloading === m.id;
   return (
     <tr className="hover:bg-gray-50/60 transition">
       <td className="py-3 px-4 max-w-[240px]">
@@ -43,11 +57,19 @@ const MaterialActionCell: React.FC<{ m: MaterialRow; t: (k: string) => string; a
         {m.created_at ? new Date(m.created_at).toLocaleDateString() : '—'}
       </td>
       <td className="py-3 px-4">
-        {href ? (
-          <a href={href} target="_blank" rel="noopener noreferrer"
+        {isFile ? (
+          <button
+            onClick={() => onDownload(m)}
+            disabled={isLoading}
+            className="inline-block text-xs bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white px-3 py-1.5 rounded-lg transition font-medium"
+          >
+            {isLoading ? '…' : t('materials.download')}
+          </button>
+        ) : m.link_url ? (
+          <a href={m.link_url} target="_blank" rel="noopener noreferrer"
             className="inline-block text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg transition font-medium"
           >
-            {isFile ? t('materials.download') : t('materials.open')}
+            {t('materials.open')}
           </a>
         ) : (
           <span className="text-xs text-gray-300">—</span>
@@ -58,7 +80,12 @@ const MaterialActionCell: React.FC<{ m: MaterialRow; t: (k: string) => string; a
 };
 
 // Flat table for non-parent roles
-const MaterialsTable: React.FC<{ rows: MaterialRow[]; t: (k: string) => string; apiUrl: string }> = ({ rows, t, apiUrl }) => (
+const MaterialsTable: React.FC<{
+  rows: MaterialRow[];
+  t: (k: string) => string;
+  onDownload: (m: MaterialRow) => void;
+  downloading: string | null;
+}> = ({ rows, t, onDownload, downloading }) => (
   <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
     <table className="w-full text-sm">
       <thead>
@@ -72,7 +99,7 @@ const MaterialsTable: React.FC<{ rows: MaterialRow[]; t: (k: string) => string; 
         {rows.map(m => {
           const isFile = !!m.file_url;
           const ext    = isFile ? getExt(m.file_url) : 'LINK';
-          const href   = isFile ? `${apiUrl}${m.file_url}` : m.link_url;
+          const isLoading = downloading === m.id;
           return (
             <tr key={m.id} className="hover:bg-gray-50/60 transition">
               <td className="py-3 px-4 max-w-[240px]">
@@ -93,11 +120,19 @@ const MaterialsTable: React.FC<{ rows: MaterialRow[]; t: (k: string) => string; 
                 {m.created_at ? new Date(m.created_at).toLocaleDateString() : '—'}
               </td>
               <td className="py-3 px-4">
-                {href ? (
-                  <a href={href} target="_blank" rel="noopener noreferrer"
+                {isFile ? (
+                  <button
+                    onClick={() => onDownload(m)}
+                    disabled={isLoading}
+                    className="inline-block text-xs bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white px-3 py-1.5 rounded-lg transition font-medium"
+                  >
+                    {isLoading ? '…' : t('materials.download')}
+                  </button>
+                ) : m.link_url ? (
+                  <a href={m.link_url} target="_blank" rel="noopener noreferrer"
                     className="inline-block text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg transition font-medium"
                   >
-                    {isFile ? t('materials.download') : t('materials.open')}
+                    {t('materials.open')}
                   </a>
                 ) : (
                   <span className="text-xs text-gray-300">—</span>
@@ -112,7 +147,12 @@ const MaterialsTable: React.FC<{ rows: MaterialRow[]; t: (k: string) => string; 
 );
 
 // Grouped view for parent role: Child → Course → materials
-const ParentGroupedMaterials: React.FC<{ rows: MaterialRow[]; t: (k: string) => string; apiUrl: string }> = ({ rows, t, apiUrl }) => {
+const ParentGroupedMaterials: React.FC<{
+  rows: MaterialRow[];
+  t: (k: string) => string;
+  onDownload: (m: MaterialRow) => void;
+  downloading: string | null;
+}> = ({ rows, t, onDownload, downloading }) => {
   // Group by child_name → course_name → rows
   const byChild: Record<string, Record<string, MaterialRow[]>> = {};
   rows.forEach(m => {
@@ -153,7 +193,7 @@ const ParentGroupedMaterials: React.FC<{ rows: MaterialRow[]; t: (k: string) => 
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
-                      {courseRows.map(m => <MaterialActionCell key={m.id} m={m} t={t} apiUrl={apiUrl} />)}
+                      {courseRows.map(m => <MaterialActionCell key={m.id} m={m} t={t} onDownload={onDownload} downloading={downloading} />)}
                     </tbody>
                   </table>
                 </div>
@@ -176,6 +216,25 @@ export const MaterialsPage: React.FC = () => {
   const [search, setSearch]     = useState('');
   const [courseFilter, setCourseFilter] = useState('');
   const [typeFilter, setTypeFilter]     = useState('');
+  const [downloading, setDownloading]   = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState('');
+
+  const handleDownload = async (m: MaterialRow) => {
+    setDownloading(m.id);
+    setDownloadError('');
+    try {
+      const r = await apiService.downloadMaterial(m.course_id, m.id);
+      const filename = m.file_url ? m.file_url.split('/').pop() ?? m.title : m.title;
+      triggerBlobDownload(r.data as Blob, filename);
+    } catch (err: any) {
+      const status = err?.response?.status;
+      if (status === 403) setDownloadError('You do not have access to download this file.');
+      else if (status === 404) setDownloadError('File not found. It may have been removed.');
+      else setDownloadError('Download failed. Please try again.');
+    } finally {
+      setDownloading(null);
+    }
+  };
 
   useEffect(() => { load(); }, []);
 
@@ -254,6 +313,14 @@ export const MaterialsPage: React.FC = () => {
           </button>
         </div>
 
+        {/* Download error banner */}
+        {downloadError && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm flex items-center justify-between">
+            <span>{downloadError}</span>
+            <button onClick={() => setDownloadError('')} className="ml-3 text-red-400 hover:text-red-600 text-lg leading-none">×</button>
+          </div>
+        )}
+
         {/* Filters */}
         <div className="flex flex-wrap gap-3 mb-5">
           <input
@@ -309,9 +376,9 @@ export const MaterialsPage: React.FC = () => {
           </div>
         ) : isParent ? (
           // Parent view: grouped by child → course
-          <ParentGroupedMaterials rows={filtered} t={t} apiUrl={API_URL} />
+          <ParentGroupedMaterials rows={filtered} t={t} onDownload={handleDownload} downloading={downloading} />
         ) : (
-          <MaterialsTable rows={filtered} t={t} apiUrl={API_URL} />
+          <MaterialsTable rows={filtered} t={t} onDownload={handleDownload} downloading={downloading} />
         )}
       </div>
     </DashboardLayout>

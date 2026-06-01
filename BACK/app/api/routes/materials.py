@@ -3,6 +3,7 @@ import os
 import uuid
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from typing import List, Optional
 
 from app.models import User, RoleEnum
@@ -123,6 +124,33 @@ async def add_material(
     )
 
     return CourseMaterialResponse(**_serialize(material))
+
+
+@router.get("/{course_id}/materials/{material_id}/download")
+async def download_material(
+    course_id: str,
+    material_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Authenticated file download — enforces RBAC before serving bytes."""
+    await _check_course_access(course_id, current_user)
+
+    material = await CourseMaterialRepository.get_by_id(material_id)
+    if not material or material.course_id != course_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Material not found")
+    if not material.file_url:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No file attached to this material")
+
+    file_path = Path(__file__).resolve().parents[3] / material.file_url.lstrip("/")
+    if not file_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found on server")
+
+    filename = Path(material.file_url).name
+    return FileResponse(
+        path=str(file_path),
+        filename=filename,
+        media_type="application/octet-stream",
+    )
 
 
 @router.delete("/{course_id}/materials/{material_id}", status_code=status.HTTP_204_NO_CONTENT)

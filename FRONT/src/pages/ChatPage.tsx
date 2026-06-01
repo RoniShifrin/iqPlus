@@ -116,6 +116,9 @@ const ChatPage: React.FC = () => {
   const [letterFilter, setLetterFilter] = useState<string | null>(null);
   const [loadingContacts, setLoadingContacts] = useState(false);
 
+  // Conversation sidebar search
+  const [convSearch, setConvSearch] = useState('');
+
   // Presence map: userId → { is_online, last_active_at }
   const [presence, setPresence] = useState<PresenceMap>({});
 
@@ -288,6 +291,14 @@ const ChatPage: React.FC = () => {
   // Letters that have at least one contact — used to dim letters with no matches
   const activeLetters = new Set(contacts.map(c => c.name.charAt(0).toUpperCase()));
 
+  const filteredConversations = convSearch.trim()
+    ? conversations.filter(c => {
+        const q = convSearch.toLowerCase();
+        return convLabel(c).toLowerCase().includes(q) ||
+          (c.last_message_preview ?? '').toLowerCase().includes(q);
+      })
+    : conversations;
+
   const selectedConv = conversations.find(c => c.id === selectedId);
   const totalUnread = conversations.reduce((sum, c) => sum + c.unread_count, 0);
 
@@ -328,15 +339,28 @@ const ChatPage: React.FC = () => {
             </button>
           </div>
 
+          {/* Conversation search */}
+          <div className="px-3 py-2 border-b border-gray-50">
+            <input
+              type="text"
+              placeholder="Search conversations…"
+              value={convSearch}
+              onChange={e => setConvSearch(e.target.value)}
+              className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 bg-gray-50 placeholder:text-gray-400"
+            />
+          </div>
+
           <div className="flex-1 overflow-y-auto">
             {loadingConvs ? (
               <div className="py-10 text-center text-xs text-gray-400">Loading…</div>
-            ) : conversations.length === 0 ? (
+            ) : filteredConversations.length === 0 ? (
               <div className="py-10 text-center text-xs text-gray-400 px-4">
-                No conversations yet.<br />Press + to start one.
+                {conversations.length === 0
+                  ? <><span>No conversations yet.</span><br /><span>Press + to start one.</span></>
+                  : 'No conversations match your search.'}
               </div>
             ) : (
-              conversations.map(conv => {
+              filteredConversations.map(conv => {
                 const isSelected = selectedId === conv.id;
                 // Show presence dot for direct chats
                 const otherId = conv.type === 'direct'

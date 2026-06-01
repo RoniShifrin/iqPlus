@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { apiService } from '../services/apiService';
 
 interface SearchResult {
@@ -16,6 +17,7 @@ const TYPE_ICON: Record<string, string> = {
 };
 
 export const SearchBar: React.FC = () => {
+  const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [open, setOpen] = useState(false);
@@ -23,6 +25,16 @@ export const SearchBar: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reqSeqRef = useRef(0);
+
+  const handleResultClick = (r: SearchResult) => {
+    setOpen(false);
+    setQuery('');
+    if (r.type === 'course') {
+      navigate(`/courses/${r.id}`);
+    } else if (r.type === 'student' || r.type === 'teacher') {
+      navigate(`/users/${r.id}/profile`);
+    }
+  };
 
   useEffect(() => {
     if (!query.trim()) {
@@ -79,7 +91,7 @@ export const SearchBar: React.FC = () => {
             <div
               key={`${r.type}-${r.id}`}
               className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 cursor-pointer border-b border-gray-50 last:border-0"
-              onClick={() => { setOpen(false); setQuery(''); }}
+              onClick={() => handleResultClick(r)}
             >
               <span className="text-base">{TYPE_ICON[r.type] ?? '🔍'}</span>
               <div className="min-w-0">

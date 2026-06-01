@@ -6,6 +6,15 @@ import { apiService } from '../services/apiService';
 
 const DAY_EN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'] as const;
 
+interface ScoringWeights {
+  grades: number;
+  attendance: number;
+  feedback: number;
+  trend: number;
+}
+
+const DEFAULT_WEIGHTS: ScoringWeights = { grades: 50, attendance: 20, feedback: 20, trend: 10 };
+
 interface FormState {
   code: string;
   name: string;
@@ -16,6 +25,7 @@ interface FormState {
   start_time: string;
   end_time: string;
   teacherId: string; // Admin-only: which teacher to assign
+  scoring_weights: ScoringWeights;
 }
 
 interface TeacherOption { id: string; first_name: string; last_name: string; }
@@ -31,6 +41,7 @@ export const CourseFormPage: React.FC = () => {
     code: '', name: '', description: '', capacity: 30,
     visibility_scope: 'school_only', days: [], start_time: '09:00', end_time: '10:00',
     teacherId: '',
+    scoring_weights: { ...DEFAULT_WEIGHTS },
   });
   const [loading, setLoading]     = useState(isEdit);
   const [submitting, setSubmitting] = useState(false);
@@ -71,6 +82,7 @@ export const CourseFormPage: React.FC = () => {
           start_time: c.schedule?.start_time || '09:00',
           end_time:   c.schedule?.end_time   || '10:00',
           teacherId: '', // not used in edit mode
+          scoring_weights: c.scoring_weights ?? { ...DEFAULT_WEIGHTS },
         });
       })
       .catch(() => setError('Could not load course.'))
@@ -90,8 +102,18 @@ export const CourseFormPage: React.FC = () => {
       days: f.days.includes(day) ? f.days.filter((d) => d !== day) : [...f.days, day],
     }));
 
+  const weightsTotal = form.scoring_weights.grades + form.scoring_weights.attendance
+    + form.scoring_weights.feedback + form.scoring_weights.trend;
+  const weightsValid = Math.abs(weightsTotal - 100) < 0.01;
+
+  const setWeight = (key: keyof ScoringWeights, raw: string) => {
+    const val = parseFloat(raw);
+    setForm(f => ({ ...f, scoring_weights: { ...f.scoring_weights, [key]: isNaN(val) ? 0 : val } }));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!weightsValid) { setError('Scoring weights must sum to 100.'); return; }
     setSubmitting(true);
     setError('');
 
@@ -104,6 +126,7 @@ export const CourseFormPage: React.FC = () => {
       schedule: form.days.length > 0
         ? { days: form.days, start_time: form.start_time, end_time: form.end_time }
         : undefined,
+      scoring_weights: form.scoring_weights,
     };
     // Admin must pick a teacher; teacher is auto-assigned on the backend
     if (user?.role === 'admin' && !isEdit) {
@@ -263,9 +286,46 @@ export const CourseFormPage: React.FC = () => {
           )}
         </div>
 
+        {/* Scoring Weights */}
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-1">
+            Scoring Weights
+            <span className={`ml-2 text-xs font-normal ${weightsValid ? 'text-green-600' : 'text-red-500'}`}>
+              (total: {weightsTotal.toFixed(0)}% — must equal 100)
+            </span>
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            {(
+              [
+                { key: 'grades',     label: 'Grades / Assignments %' },
+                { key: 'attendance', label: 'Attendance %' },
+                { key: 'feedback',   label: 'Teacher Feedback %' },
+                { key: 'trend',      label: 'Progress Trend %' },
+              ] as { key: keyof ScoringWeights; label: string }[]
+            ).map(({ key, label }) => (
+              <div key={key}>
+                <label className="block text-xs text-gray-500 mb-1">{label}</label>
+                <input
+                  type="number" min={0} max={100} step={1}
+                  value={form.scoring_weights[key]}
+                  onChange={e => setWeight(key, e.target.value)}
+                  className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 ${
+                    !weightsValid ? 'border-red-300' : 'border-gray-200'
+                  }`}
+                />
+              </div>
+            ))}
+          </div>
+          {!weightsValid && (
+            <p className="text-xs text-red-500 mt-1.5">
+              Weights must sum to exactly 100. Current total: {weightsTotal.toFixed(2)}.
+            </p>
+          )}
+        </div>
+
         {/* Actions */}
         <div className="flex gap-3 pt-2">
-          <button type="submit" disabled={submitting}
+          <button type="submit" disabled={submitting || !weightsValid}
             className="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-bold py-2.5 rounded-lg transition">
             {submitting ? t('courseForm.saving') : isEdit ? t('courseForm.saveChanges') : t('courseForm.createCourse')}
           </button>

@@ -7,7 +7,7 @@ POST /api/scores/{student_id}/{course_id}/compute  — force recompute (teacher/
 """
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.models import User, RoleEnum, PerformanceScore, ScoreHistory
 from app.schemas import PerformanceScoreResponse
@@ -167,6 +167,7 @@ async def get_all_predictions(
 async def get_feedback_insight(
     student_id: str,
     course_id: str,
+    language: str = Query(default="en"),
     current_user: User = Depends(get_current_user),
 ):
     """Human-readable feedback analysis summary for this enrollment.
@@ -194,7 +195,7 @@ async def get_feedback_insight(
 
     avg_contribution = round(sum(a.calculated_contribution for a in recent) / len(recent), 1)
     dominant_sentiment = recent[0].sentiment_label
-    summary = FeedbackAnalysisService.build_human_summary(analyses)
+    summary = FeedbackAnalysisService.build_human_summary(analyses, language)
 
     base: dict = {
         "summary":            summary,

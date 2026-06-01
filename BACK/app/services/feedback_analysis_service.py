@@ -284,18 +284,18 @@ class FeedbackAnalysisService:
             return None
 
     @staticmethod
-    def build_human_summary(analyses: list) -> str:
+    def build_human_summary(analyses: list, language: str = "en") -> str:
         """
         Convert recent FeedbackAnalysis documents into a single readable sentence
         suitable for display to students / parents.
         """
+        from app.services.ai_messages import msg
         if not analyses:
             return ""
 
         recent = sorted(analyses, key=lambda a: a.created_at, reverse=True)[:5]
         dominant = recent[0].sentiment_label
 
-        # Aggregate tag frequency
         tag_counts: dict[str, int] = {}
         for a in recent:
             for t in a.extracted_tags:
@@ -305,13 +305,7 @@ class FeedbackAnalysisService:
         tag_str = " and ".join(t.replace("_", " ") for t in top_tags) if top_tags else ""
 
         if dominant == "positive":
-            if tag_str:
-                return f"Recent teacher feedback highlights strong {tag_str}."
-            return "Recent teacher feedback is generally positive."
+            return msg("fb.positive_with_tags", language, tag_str=tag_str) if tag_str else msg("fb.positive_no_tags", language)
         if dominant == "negative":
-            if tag_str:
-                return f"Recent teacher feedback indicates concerns around {tag_str}."
-            return "Recent teacher feedback indicates areas needing improvement."
-        if tag_str:
-            return f"Recent teacher feedback notes average {tag_str}."
-        return "Recent teacher feedback is neutral."
+            return msg("fb.negative_with_tags", language, tag_str=tag_str) if tag_str else msg("fb.negative_no_tags", language)
+        return msg("fb.neutral_with_tags", language, tag_str=tag_str) if tag_str else msg("fb.neutral_no_tags", language)

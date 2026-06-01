@@ -23,6 +23,7 @@ def _serialize(course: Course) -> dict:
         "capacity": course.capacity,
         "status": course.status,
         "visibility_scope": course.visibility_scope,
+        "scoring_weights": course.scoring_weights,
         "created_at": course.created_at,
     }
 
@@ -62,6 +63,7 @@ async def create_course(
         teacher_id=assigned_teacher_id,
         created_by_role=current_user.role.value,
         status=CourseStatusEnum.DRAFT,
+        scoring_weights=body.scoring_weights.model_dump() if body.scoring_weights else None,
     )
     return CourseResponse(**_serialize(course))
 

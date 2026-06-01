@@ -18,6 +18,7 @@ async def analyze_student_progress(
     attendance_rate: float,
     trend: str,
     lesson_count: int,
+    language: str = "en",
 ) -> dict:
     """
     Analyze academic indicators using Claude AI (or rule-based fallback).
@@ -35,7 +36,7 @@ async def analyze_student_progress(
         try:
             from anthropic import AsyncAnthropic
             client = AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
-            prompt = _build_prompt(grades, attendance_rate, trend, lesson_count)
+            prompt = _build_prompt(grades, attendance_rate, trend, lesson_count, language)
             message = await client.messages.create(
                 model="claude-haiku-4-5-20251001",
                 max_tokens=300,
@@ -49,18 +50,25 @@ async def analyze_student_progress(
         except Exception as exc:
             logger.warning("Claude analysis failed (%s), using rule-based fallback", exc)
 
-    return _fallback(grades, attendance_rate, trend)
+    return _fallback(grades, attendance_rate, trend, language)
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 def _build_prompt(
-    grades: list, attendance_rate: float, trend: str, lesson_count: int
+    grades: list, attendance_rate: float, trend: str, lesson_count: int,
+    language: str = "en",
 ) -> str:
     grade_str = ", ".join(f"{g:.1f}" for g in grades[-10:]) if grades else "none"
+    lang_instruction = (
+        "Respond in Hebrew. All explanation and recommended_action values must be in Hebrew."
+        if language == "he"
+        else "Respond in English."
+    )
     return (
         "You are an academic monitoring AI. Analyze these student indicators and "
         "return ONLY valid JSON — no explanation outside the JSON.\n\n"
+        f"{lang_instruction}\n\n"
         f"Recent grades (latest first): {grade_str}\n"
         f"Attendance rate: {attendance_rate:.1f}%\n"
         f"Grade trend: {trend}\n"
@@ -89,49 +97,44 @@ def _parse_response(text: str) -> dict:
     }
 
 
-def _fallback(grades: list, attendance_rate: float, trend: str) -> dict:
+def _fallback(grades: list, attendance_rate: float, trend: str, language: str = "en") -> dict:
     """Rule-based fallback when Claude is unavailable."""
+    from app.services.ai_messages import msg, trend_label
     avg = sum(grades) / len(grades) if grades else 0.0
 
     if attendance_rate < 75 and avg < 60:
         return {
             "alert_level": "critical",
-            "explanation": (
-                f"Low attendance ({attendance_rate:.1f}%) combined with "
-                f"low average grade ({avg:.1f}%) detected."
-            ),
-            "recommended_action": (
-                "Schedule an immediate review session and contact the student's parents."
-            ),
+            "explanation": msg("cl.critical.explanation", language, att=attendance_rate, avg=avg),
+            "recommended_action": msg("cl.critical.action", language),
         }
 
     if trend == "declining" and avg < 65:
         return {
             "alert_level": "warning",
-            "explanation": f"Declining grades detected. Current average: {avg:.1f}%.",
-            "recommended_action": "Recommend additional study support and teacher check-in.",
+            "explanation": msg("cl.declining.explanation", language, avg=avg),
+            "recommended_action": msg("cl.declining.action", language),
         }
 
     if attendance_rate < 75:
         return {
             "alert_level": "warning",
-            "explanation": f"Attendance below threshold: {attendance_rate:.1f}%.",
-            "recommended_action": "Contact student and parents regarding attendance.",
+            "explanation": msg("cl.attendance.explanation", language, att=attendance_rate),
+            "recommended_action": msg("cl.attendance.action", language),
         }
 
     if len(grades) >= 3 and all(g < 60 for g in grades[-3:]):
         return {
             "alert_level": "warning",
-            "explanation": (
-                f"Student scored below 60 in the last {min(3, len(grades))} lessons."
-            ),
-            "recommended_action": "Consider remedial sessions and check for learning difficulties.",
+            "explanation": msg("cl.stagnation.explanation", language, n=min(3, len(grades))),
+            "recommended_action": msg("cl.stagnation.action", language),
         }
 
     return {
         "alert_level": "info",
-        "explanation": (
-            f"Performance is {trend}. Average: {avg:.1f}%, Attendance: {attendance_rate:.1f}%."
+        "explanation": msg(
+            "cl.info.explanation", language,
+            trend=trend_label(trend, language), avg=avg, att=attendance_rate,
         ),
-        "recommended_action": "Continue monitoring progress.",
+        "recommended_action": msg("cl.info.action", language),
     }

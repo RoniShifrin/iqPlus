@@ -3,6 +3,10 @@ import { safeStorage } from '../utils/safeStorage';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 
+const getLang = (): string => {
+  try { return localStorage.getItem('iq_lang') || 'en'; } catch { return 'en'; }
+};
+
 const createApiClient = (): AxiosInstance => {
   const client = axios.create({
     baseURL: API_URL,
@@ -108,6 +112,8 @@ export const apiService = {
     apiClient.post(`/api/courses/${courseId}/materials`, data, { headers: { 'Content-Type': 'multipart/form-data' } }),
   deleteMaterial:  (courseId: string, materialId: string) =>
     apiClient.delete(`/api/courses/${courseId}/materials/${materialId}`),
+  downloadMaterial: (courseId: string, materialId: string) =>
+    apiClient.get(`/api/courses/${courseId}/materials/${materialId}/download`, { responseType: 'blob' }),
 
   // ── Search ───────────────────────────────────────────────────────────────
   search: (q: string, type?: string)  => apiClient.get('/api/search/', { params: { q, type } }),
@@ -172,7 +178,7 @@ export const apiService = {
   getScoreHistory: (studentId: string, courseId: string, limit = 20) =>
     apiClient.get(`/api/scores/${studentId}/${courseId}/history`, { params: { limit } }),
   getFeedbackInsight: (studentId: string, courseId: string) =>
-    apiClient.get(`/api/scores/${studentId}/${courseId}/feedback-insight`),
+    apiClient.get(`/api/scores/${studentId}/${courseId}/feedback-insight`, { params: { language: getLang() } }),
   getPrediction: (studentId: string, courseId: string) =>
     apiClient.get(`/api/scores/${studentId}/${courseId}/prediction`),
   getAllPredictions: (studentId: string) =>
@@ -224,17 +230,17 @@ export const apiService = {
   getCourseRiskSummary:   (courseId: string) =>
     apiClient.get('/api/ai/risk-summary', { params: { course_id: courseId } }),
   getTeacherAssistant:   (courseId: string) =>
-    apiClient.get(`/api/ai/teacher-assistant/${courseId}`),
+    apiClient.get(`/api/ai/teacher-assistant/${courseId}`, { params: { language: getLang() } }),
   getAdminAIOverview:    () =>
-    apiClient.get('/api/ai/admin-overview'),
+    apiClient.get('/api/ai/admin-overview', { params: { language: getLang() } }),
   getStudentAIInsights:  (studentId: string) =>
-    apiClient.get(`/api/ai/student-insights/${studentId}`),
+    apiClient.get(`/api/ai/student-insights/${studentId}`, { params: { language: getLang() } }),
   getFeedbackTrend:      (courseId: string, days = 60) =>
-    apiClient.get(`/api/ai/feedback-trend/${courseId}`, { params: { days } }),
+    apiClient.get(`/api/ai/feedback-trend/${courseId}`, { params: { days, language: getLang() } }),
   suggestFeedback:       (data: { student_id: string; course_id: string; tone: string }) =>
-    apiClient.post('/api/ai/suggest-feedback', data),
+    apiClient.post('/api/ai/suggest-feedback', { ...data, language: getLang() }),
   getDashboardInsights:  () =>
-    apiClient.get('/api/ai/dashboard-insights'),
+    apiClient.get('/api/ai/dashboard-insights', { params: { language: getLang() } }),
 
   // ── AI Alert interactions ─────────────────────────────────────────────────
   markAlertSeen:         (alertId: string) =>
@@ -246,6 +252,7 @@ export const apiService = {
   analyzeSchedule: (data: {
     course_ids: string[];
     student_id?: string;
+    language?: string;
     preferences?: {
       preferred_days?: string[];
       preferred_free_day?: string;
@@ -256,11 +263,11 @@ export const apiService = {
       avoid_early?: boolean;
       avoid_late?: boolean;
     };
-  }) => apiClient.post('/api/planner/analyze', data),
+  }) => apiClient.post('/api/planner/analyze', { ...data, language: getLang() }),
   getPlannerRecommendations: (params?: {
     student_id?: string;
     avoid_early?: boolean;
     avoid_late?: boolean;
     max_hours_day?: number;
-  }) => apiClient.get('/api/planner/recommendations', { params }),
+  }) => apiClient.get('/api/planner/recommendations', { params: { ...params, language: getLang() } }),
 };

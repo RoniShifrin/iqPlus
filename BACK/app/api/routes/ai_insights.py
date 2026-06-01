@@ -12,7 +12,7 @@ No original academic records are modified. No expensive recomputation at query t
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.models import (
     User, RoleEnum, ProgressPrediction, PerformanceScore,
@@ -34,6 +34,7 @@ router = APIRouter(prefix="/api/ai", tags=["ai-insights"])
 async def get_feedback_trend(
     course_id: str,
     days: int = 60,
+    language: str = Query(default="en"),
     current_user: User = Depends(get_current_user),
 ):
     """Aggregated feedback sentiment and tag-frequency trend for a course.
@@ -58,6 +59,7 @@ async def get_feedback_trend(
         FeedbackAnalysis.created_at >= cutoff,
     ).sort(-FeedbackAnalysis.created_at).to_list()
 
+    from app.services.ai_messages import msg as _msg
     if not analyses:
         return {
             "course_id":              course_id,
@@ -65,7 +67,7 @@ async def get_feedback_trend(
             "total_feedback":         0,
             "sentiment_distribution": {},
             "top_tags":               [],
-            "concern_summary":        "No feedback data available for this period.",
+            "concern_summary":        _msg("fbt.no_data", language),
             "trend":                  "stable",
         }
 
@@ -104,23 +106,23 @@ async def get_feedback_trend(
     pos_pct = sentiment_pct.get("positive", 0)
     parts: list[str] = []
     if neg_pct >= 50:
-        parts.append(f"Over half of recent feedback ({neg_pct}%) is negative.")
+        parts.append(_msg("fbt.neg_over_half", language, neg_pct=neg_pct))
     elif neg_pct >= 30:
-        parts.append(f"{neg_pct}% of recent feedback is negative — monitor closely.")
+        parts.append(_msg("fbt.neg_moderate", language, neg_pct=neg_pct))
     elif pos_pct >= 60:
-        parts.append(f"Predominantly positive feedback ({pos_pct}%).")
+        parts.append(_msg("fbt.pos_majority", language, pos_pct=pos_pct))
     else:
-        parts.append("Feedback sentiment is mixed.")
+        parts.append(_msg("fbt.mixed", language))
 
     concern_tags = [t["tag"] for t in top_tags
                     if t["tag"] in ("participation", "homework", "behavior", "understanding", "consistency")]
     if concern_tags:
-        parts.append(f"Recurring areas: {', '.join(concern_tags[:3])}.")
+        parts.append(_msg("fbt.recurring_areas", language, areas=", ".join(concern_tags[:3])))
 
     if trend == "worsening":
-        parts.append("Trend is worsening compared to the previous period.")
+        parts.append(_msg("fbt.trend_worsening", language))
     elif trend == "improving":
-        parts.append("Trend is improving compared to the previous period.")
+        parts.append(_msg("fbt.trend_improving", language))
 
     return {
         "course_id":              course_id,
@@ -221,6 +223,7 @@ async def get_risk_summary(
 @router.get("/teacher-assistant/{course_id}")
 async def get_teacher_assistant(
     course_id: str,
+    language: str = Query(default="en"),
     current_user: User = Depends(get_current_user),
 ):
     """AI-generated class performance summary for teachers.
@@ -241,11 +244,12 @@ async def get_teacher_assistant(
     enrollments = await EnrollmentRepository.list_by_course(course_id)
     active = [e for e in enrollments if e.status == EnrollmentStatusEnum.ACTIVE]
 
+    from app.services.ai_messages import msg as _msg
     if not active:
         return {
             "course_id":     course_id,
             "course_name":   course.name,
-            "summary":       "No active students enrolled in this course.",
+            "summary":       _msg("ta.no_students", language),
             "class_stats":   {},
             "attention_list": [],
             "insights":      [],
@@ -294,30 +298,30 @@ async def get_teacher_assistant(
     # Readable summary
     parts = []
     if avg_score is not None:
-        parts.append(f"Class average: {avg_score}/100.")
+        parts.append(_msg("ta.class_avg", language, avg=avg_score))
     if excellent:
-        parts.append(f"{len(excellent)} student(s) performing excellently.")
+        parts.append(_msg("ta.excellent_count", language, n=len(excellent)))
     if high_risk:
-        parts.append(f"{len(high_risk)} student(s) at high risk — immediate attention recommended.")
+        parts.append(_msg("ta.high_risk_count", language, n=len(high_risk)))
     elif medium_risk:
-        parts.append(f"{len(medium_risk)} student(s) at medium risk — monitor closely.")
+        parts.append(_msg("ta.medium_risk_count", language, n=len(medium_risk)))
     if recent_alerts:
-        parts.append(f"{len(recent_alerts)} AI alert(s) raised in the past 14 days.")
+        parts.append(_msg("ta.recent_alerts", language, n=len(recent_alerts)))
     if not parts:
-        parts.append("All students appear to be progressing normally.")
+        parts.append(_msg("ta.all_normal", language))
 
     # Insight bullets
     insights = []
     if declining:
         names = ", ".join(s["student_name"] for s in declining[:3])
         suffix = "…" if len(declining) > 3 else ""
-        insights.append(f"Declining trend detected for: {names}{suffix}.")
+        insights.append(_msg("ta.declining_trend", language, names=names, suffix=suffix))
     if improving:
-        insights.append(f"{len(improving)} student(s) show an improving trend.")
+        insights.append(_msg("ta.improving_count", language, n=len(improving)))
     if needs_attn and len(active) > 0 and len(needs_attn) / len(active) > 0.3:
-        insights.append("More than 30% of the class needs attention — consider a group review session.")
+        insights.append(_msg("ta.group_review", language))
     for alert in recent_alerts[:3]:
-        insights.append(f"Recent alert: {alert.message}")
+        insights.append(_msg("ta.recent_alert", language, message=alert.message))
 
     return {
         "course_id":   course_id,
@@ -341,6 +345,7 @@ async def get_teacher_assistant(
 
 @router.get("/admin-overview")
 async def get_admin_overview(
+    language: str = Query(default="en"),
     current_user: User = Depends(get_current_user),
 ):
     """Admin AI overview: courses with highest risk, teacher load, declining trends.
@@ -437,18 +442,19 @@ async def get_admin_overview(
             })
     declining_courses.sort(key=lambda x: x["at_risk_count"], reverse=True)
 
+    from app.services.ai_messages import msg as _msg
     # Summary text
     total_tracked = len(all_predictions)
     parts = []
     if risk_counts["high"] > 0:
         pct = round(risk_counts["high"] / total_tracked * 100) if total_tracked else 0
-        parts.append(f"{risk_counts['high']} enrollment(s) at high risk ({pct}% of tracked).")
+        parts.append(_msg("ao.high_risk", language, n=risk_counts["high"], pct=pct))
     if declining_courses:
-        parts.append(f"{len(declining_courses)} course(s) show declining performance trends.")
+        parts.append(_msg("ao.declining_courses", language, n=len(declining_courses)))
     if teacher_overload:
-        parts.append(f"{len(teacher_overload)} teacher(s) managing 3+ active courses.")
+        parts.append(_msg("ao.teacher_overload", language, n=len(teacher_overload)))
     if not parts:
-        parts.append("System performance looks stable. No urgent patterns detected.")
+        parts.append(_msg("ao.stable", language))
 
     return {
         "summary":           " ".join(parts),
@@ -466,6 +472,7 @@ async def get_admin_overview(
 @router.get("/student-insights/{student_id}")
 async def get_student_insights(
     student_id: str,
+    language: str = Query(default="en"),
     current_user: User = Depends(get_current_user),
 ):
     """AI-generated readable insight bullets for a student profile.
@@ -506,6 +513,7 @@ async def get_student_insights(
     improving_preds = [p for p in predictions if p.prediction_label == "likely_improving"]
     declining_preds = [p for p in predictions if p.prediction_label in ("at_risk", "needs_intervention")]
 
+    from app.services.ai_messages import msg as _msg
     # Build insight bullets
     insight_texts: list[str] = []
 
@@ -515,13 +523,11 @@ async def get_student_insights(
 
     # From predictions
     if high_risk_preds:
-        insight_texts.append(
-            f"At high risk in {len(high_risk_preds)} course(s) — teacher attention recommended."
-        )
+        insight_texts.append(_msg("si.high_risk_courses", language, n=len(high_risk_preds)))
     elif improving_preds and not declining_preds:
-        insight_texts.append(f"Improvement trend detected in {len(improving_preds)} course(s).")
+        insight_texts.append(_msg("si.improving_courses", language, n=len(improving_preds)))
     elif declining_preds:
-        insight_texts.append(f"Declining performance noted in {len(declining_preds)} course(s).")
+        insight_texts.append(_msg("si.declining_courses", language, n=len(declining_preds)))
 
     # From feedback analysis
     if feedback_analyses:
@@ -534,11 +540,11 @@ async def get_student_insights(
         if neg and len(neg) > len(feedback_analyses) * 0.5:
             top_tags = list(dict.fromkeys(all_tags))[:3]
             tag_str  = ", ".join(top_tags) if top_tags else "various areas"
-            insight_texts.append(f"Recent feedback indicates concerns in: {tag_str}.")
+            insight_texts.append(_msg("si.feedback_concerns", language, tag_str=tag_str))
         elif pos and len(pos) > len(feedback_analyses) * 0.5:
             top_tags = list(dict.fromkeys(all_tags))[:3]
             if top_tags:
-                insight_texts.append(f"Positive feedback highlights: {', '.join(top_tags)}.")
+                insight_texts.append(_msg("si.feedback_positive", language, tag_str=", ".join(top_tags)))
 
     # From performance scores
     if scores:
@@ -549,9 +555,9 @@ async def get_student_insights(
         ]
         avg = sum(s.score for s in scores) / len(scores)
         if needs_attn:
-            insight_texts.append(f"Performance below threshold in {len(needs_attn)} course(s).")
+            insight_texts.append(_msg("si.perf_below_threshold", language, n=len(needs_attn)))
         elif avg >= 80:
-            insight_texts.append(f"Strong overall performance with an average of {avg:.0f}/100.")
+            insight_texts.append(_msg("si.strong_avg", language, avg=round(avg)))
 
     # Deduplicate preserving order
     seen: set = set()
@@ -584,10 +590,12 @@ def _build_feedback_suggestion(
     analyses: list,
     alerts: list,
     tone: str,
+    language: str = "en",
 ) -> str:
     """Template-driven feedback suggestion from real student data.
     tone: 'encouraging' | 'formal' | 'constructive'
     """
+    from app.services.ai_messages import msg as _msg
     parts: list[str] = []
 
     if score:
@@ -596,62 +604,25 @@ def _build_feedback_suggestion(
         att = score.attendance_score
         grd = score.grade_score
 
-        if cls == "excellent":
-            if tone == "encouraging":
-                parts.append(f"Excellent work! Your current score of {val}/100 reflects outstanding dedication and consistent performance.")
-            elif tone == "formal":
-                parts.append(f"Your academic performance is at an excellent level, with a composite score of {val}/100.")
-            else:
-                parts.append(f"Your overall score of {val}/100 places you in the excellent category — a strong result.")
-        elif cls == "good":
-            if tone == "encouraging":
-                parts.append(f"You're doing well with a score of {val}/100 — keep building on this strong foundation!")
-            elif tone == "formal":
-                parts.append(f"Your current performance score of {val}/100 demonstrates steady and good progress.")
-            else:
-                parts.append(f"Your score of {val}/100 reflects solid progress, with clear room for further improvement.")
-        elif cls == "average":
-            if tone == "encouraging":
-                parts.append(f"You're making real progress with a score of {val}/100. With focused effort, I know you can reach the next level.")
-            elif tone == "formal":
-                parts.append(f"Your current performance score is {val}/100, which is at an average level.")
-            else:
-                parts.append(f"Your score of {val}/100 indicates average performance. Strengthening your study habits could lead to significant improvement.")
-        else:  # needs_attention
-            if tone == "encouraging":
-                parts.append(f"I want to reach out because your current score of {val}/100 suggests you're facing some challenges — and I believe you can turn this around.")
-            elif tone == "formal":
-                parts.append(f"Your current performance score of {val}/100 requires immediate attention.")
-            else:
-                parts.append(f"Your score of {val}/100 indicates this course needs more focus and consistent effort right now.")
+        cls_key = cls if cls in ("excellent", "good", "average", "needs_attention") else "needs_attention"
+        parts.append(_msg(f"fs.score.{cls_key}.{tone}", language, val=val))
 
         if att < 60:
-            if tone == "encouraging":
-                parts.append("Your attendance has been lower than expected — regular presence makes a significant difference to your overall progress.")
-            elif tone == "formal":
-                parts.append(f"Attendance is a concern (attendance component: {round(att)}/100). Please prioritize consistent class participation.")
-            else:
-                parts.append("Attendance needs improvement — please make class participation a consistent priority.")
+            parts.append(_msg(f"fs.att.low.{tone}", language, att=round(att)))
         elif att >= 85:
-            parts.append("Your consistent attendance is commendable and positively impacts your overall performance.")
+            parts.append(_msg("fs.att.high", language))
 
         if grd < 50 and att >= 70:
-            parts.append("Despite reasonable attendance, grades could be strengthened through additional practice and review of course materials.")
+            parts.append(_msg("fs.att.grades_low", language))
 
     if pred:
         label = pred.prediction_label
         if label == "likely_improving":
-            if tone == "encouraging":
-                parts.append("I can see a clear upward trend in your performance — keep this momentum going!")
-            else:
-                parts.append("Your performance trajectory is on an improving trend. Maintaining this consistency will lead to great results.")
+            key = "fs.pred.improving.encouraging" if tone == "encouraging" else "fs.pred.improving.other"
+            parts.append(_msg(key, language))
         elif label in ("at_risk", "needs_intervention"):
-            if tone == "encouraging":
-                parts.append("I'd really like to see you bounce back — please don't hesitate to reach out for extra support.")
-            elif tone == "formal":
-                parts.append("Based on current data, your progress trajectory requires intervention. Please schedule a meeting to discuss academic support options.")
-            else:
-                parts.append("There is a declining performance trend that needs to be addressed. Reviewing core concepts and seeking additional help is strongly recommended.")
+            at_risk_tone = tone if tone in ("encouraging", "formal") else "constructive"
+            parts.append(_msg(f"fs.pred.at_risk.{at_risk_tone}", language))
             if pred.recommendation:
                 parts.append(pred.recommendation)
 
@@ -665,33 +636,23 @@ def _build_feedback_suggestion(
         if neg >= 2 and top_tags:
             area_str = " and ".join(top_tags[:2])
             if tone == "encouraging":
-                parts.append(f"Previous feedback has highlighted areas such as {area_str} — small targeted improvements here can make a big difference.")
+                parts.append(_msg("fs.fb.neg.encouraging", language, area_str=area_str))
             else:
-                parts.append(f"Areas requiring focused attention based on prior feedback: {', '.join(top_tags)}.")
+                parts.append(_msg("fs.fb.neg.other", language, areas=", ".join(top_tags)))
         elif pos >= 2 and top_tags:
-            parts.append(f"Positive feedback highlights strengths in: {', '.join(top_tags[:2])}.")
+            parts.append(_msg("fs.fb.pos", language, areas=", ".join(top_tags[:2])))
 
     if alerts:
         msg_lower = alerts[0].message.lower()
         if "attendance" in msg_lower and tone == "encouraging":
-            parts.append("I noticed an attendance alert — making class a consistent priority will help you stay on track.")
+            parts.append(_msg("fs.alert.attendance.encouraging", language))
         elif ("negative" in msg_lower or "feedback" in msg_lower) and tone == "encouraging":
-            parts.append("Remember: challenges are a natural part of learning, and asking for help is always the right move.")
+            parts.append(_msg("fs.alert.feedback.encouraging", language))
 
-    if tone == "encouraging":
-        parts.append("Keep up the effort — I'm here to support you every step of the way!")
-    elif tone == "formal":
-        parts.append("Please do not hesitate to contact me should you require any academic assistance.")
-    else:
-        parts.append("If you have questions or need additional support, please reach out during office hours or via the course chat.")
+    parts.append(_msg(f"fs.closing.{tone}", language))
 
-    if not parts:
-        if tone == "encouraging":
-            return "Keep up the good work! Consistent effort and regular class participation are key to success. Don't hesitate to ask questions when you need support."
-        elif tone == "formal":
-            return "This is to acknowledge your participation in this course. Please ensure consistent engagement with all coursework and contact me if you require academic support."
-        else:
-            return "Please ensure consistent attendance and active engagement with the course material. Reach out if you need support or have questions about the content."
+    if not parts or len(parts) == 1:
+        return _msg(f"fs.empty.{tone}", language)
 
     return " ".join(parts)
 
@@ -715,6 +676,7 @@ async def suggest_feedback(
     student_id: str = body.get("student_id", "")
     course_id: str  = body.get("course_id", "")
     tone: str       = body.get("tone", "constructive")
+    language: str   = body.get("language", "en")
 
     if not student_id or not course_id:
         raise HTTPException(status_code=422, detail="student_id and course_id are required")
@@ -745,7 +707,7 @@ async def suggest_feedback(
     if analyses:  data_used.append("feedback_history")
     if alerts:    data_used.append("ai_alerts")
 
-    suggestion = _build_feedback_suggestion(score, pred, analyses, alerts, tone)
+    suggestion = _build_feedback_suggestion(score, pred, analyses, alerts, tone, language)
 
     return {
         "suggested_text": suggestion,
@@ -757,15 +719,16 @@ async def suggest_feedback(
 
 # ── 6. Role-aware dashboard insights ────────────────────────────────────────────
 
-async def _teacher_insights(user: User) -> list:
+async def _teacher_insights(user: User, language: str = "en") -> list:
     published = await Course.find(
         Course.teacher_id == str(user.id),
         Course.deleted_at == None,
         Course.status     == CourseStatusEnum.PUBLISHED,
     ).to_list()
 
+    from app.services.ai_messages import msg as _msg
     if not published:
-        return ["No active courses yet. Create a course to start tracking student progress."]
+        return [_msg("di.teacher.no_courses", language)]
 
     bullets: list[str] = []
     total_high_risk = 0
@@ -803,18 +766,15 @@ async def _teacher_insights(user: User) -> list:
                 best_course = course.name
 
     if total_high_risk > 0:
-        n = total_high_risk
-        bullets.append(f"{n} student{'s' if n > 1 else ''} across your courses {'are' if n > 1 else 'is'} at high risk — consider scheduling a check-in.")
+        bullets.append(_msg("di.teacher.high_risk", language, n=total_high_risk))
     elif total_needs_att > 0:
-        n = total_needs_att
-        bullets.append(f"{n} student{'s' if n > 1 else ''} need{'s' if n == 1 else ''} attention based on recent performance data.")
+        bullets.append(_msg("di.teacher.needs_attn", language, n=total_needs_att))
 
     if total_improving > 0:
-        n = total_improving
-        bullets.append(f"{n} student{'s are' if n > 1 else ' is'} showing an improving trend — positive momentum worth acknowledging.")
+        bullets.append(_msg("di.teacher.improving", language, n=total_improving))
 
     if best_course and best_avg is not None:
-        bullets.append(f"Your strongest course right now is {best_course} (avg score {round(best_avg)}/100).")
+        bullets.append(_msg("di.teacher.best_course", language, course=best_course, avg=round(best_avg)))
 
     cutoff = datetime.utcnow() - timedelta(days=14)
     recent_fas: list = []
@@ -830,17 +790,17 @@ async def _teacher_insights(user: User) -> list:
         pos = sum(1 for a in recent_fas if a.sentiment_label == "positive")
         neg = sum(1 for a in recent_fas if a.sentiment_label == "negative")
         if pos / total_fa > 0.6:
-            bullets.append("Recent feedback trend across your courses is mostly positive.")
+            bullets.append(_msg("di.teacher.pos_feedback", language))
         elif neg / total_fa > 0.5:
-            bullets.append("Recent feedback shows more negative sentiment — a group review session may help.")
+            bullets.append(_msg("di.teacher.neg_feedback", language))
 
     if not bullets:
-        bullets.append("All students appear to be progressing normally. Keep up the great work!")
+        bullets.append(_msg("di.teacher.all_normal", language))
 
     return bullets[:4]
 
 
-async def _student_insights(user: User) -> list:
+async def _student_insights(user: User, language: str = "en") -> list:
     student_id  = str(user.id)
     cutoff      = datetime.utcnow() - timedelta(days=30)
     predictions = await ProgressPredictionRepository.list_by_student(student_id)
@@ -850,44 +810,43 @@ async def _student_insights(user: User) -> list:
         LearningInsight.created_at >= cutoff,
     ).sort(-LearningInsight.created_at).limit(5).to_list()
 
+    from app.services.ai_messages import msg as _msg
     bullets: list[str] = []
 
     if scores:
         avg = sum(s.score for s in scores) / len(scores)
         if avg >= 80:
-            bullets.append(f"Your average performance across all courses is {round(avg)}/100 — excellent work!")
+            bullets.append(_msg("di.student.avg_excellent", language, avg=round(avg)))
         elif avg >= 60:
-            bullets.append(f"Your average performance score is {round(avg)}/100 — solid progress with room to grow.")
+            bullets.append(_msg("di.student.avg_solid", language, avg=round(avg)))
         else:
-            bullets.append(f"Your average performance score is {round(avg)}/100 — focused effort on core concepts can improve this significantly.")
+            bullets.append(_msg("di.student.avg_low", language, avg=round(avg)))
 
     high_risk = [p for p in predictions if p.risk_level == "high"]
     improving  = [p for p in predictions if p.prediction_label == "likely_improving"]
     declining  = [p for p in predictions if p.prediction_label in ("at_risk", "needs_intervention")]
 
     if high_risk:
-        n = len(high_risk)
-        bullets.append(f"You are at high risk in {n} course{'s' if n > 1 else ''} — reaching out to your teacher for support is recommended.")
+        bullets.append(_msg("di.student.high_risk", language, n=len(high_risk)))
     elif improving and not declining:
-        n = len(improving)
-        bullets.append(f"Improving performance detected in {n} course{'s' if n > 1 else ''} — keep it up!")
+        bullets.append(_msg("di.student.improving", language, n=len(improving)))
     elif declining:
-        n = len(declining)
-        bullets.append(f"Performance is declining in {n} course{'s' if n > 1 else ''} — review the material and seek help early.")
+        bullets.append(_msg("di.student.declining", language, n=len(declining)))
 
     if li_recent and len(bullets) < 3:
         bullets.append(li_recent[0].summary)
 
     if not bullets:
-        bullets.append("Your academic data is being tracked. Consistent attendance and coursework will build a complete progress picture.")
+        bullets.append(_msg("di.student.no_data", language))
 
     return bullets[:4]
 
 
-async def _parent_insights(user: User) -> list:
+async def _parent_insights(user: User, language: str = "en") -> list:
+    from app.services.ai_messages import msg as _msg
     linked_ids = user.linked_student_ids or []
     if not linked_ids:
-        return ["No linked children found. Contact your school administrator to link your account."]
+        return [_msg("di.parent.no_children", language)]
 
     bullets: list[str] = []
     cutoff = datetime.utcnow() - timedelta(days=14)
@@ -901,11 +860,9 @@ async def _parent_insights(user: User) -> list:
         improving   = [p for p in predictions if p.prediction_label == "likely_improving"]
 
         if high_risk:
-            n = len(high_risk)
-            bullets.append(f"{child_name} is at high risk in {n} course{'s' if n > 1 else ''} — please contact their teacher.")
+            bullets.append(_msg("di.parent.child_high_risk", language, child=child_name, n=len(high_risk)))
         elif improving:
-            n = len(improving)
-            bullets.append(f"{child_name} shows an improving trend in {n} course{'s' if n > 1 else ''}.")
+            bullets.append(_msg("di.parent.child_improving", language, child=child_name, n=len(improving)))
 
         recent_alerts = await AIAlert.find(
             AIAlert.student_id == student_id,
@@ -913,10 +870,10 @@ async def _parent_insights(user: User) -> list:
         ).sort(-AIAlert.created_at).limit(1).to_list()
 
         if recent_alerts:
-            msg = recent_alerts[0].message
-            if len(msg) > 80:
-                msg = msg[:77] + "…"
-            bullets.append(f"{child_name}: {msg}")
+            alert_text = recent_alerts[0].message
+            if len(alert_text) > 80:
+                alert_text = alert_text[:77] + "…"
+            bullets.append(_msg("di.parent.child_alert", language, child=child_name, message=alert_text))
 
         li = await LearningInsight.find(
             LearningInsight.student_id == student_id,
@@ -929,12 +886,12 @@ async def _parent_insights(user: User) -> list:
             break
 
     if not bullets:
-        bullets.append("No recent alerts or significant changes detected. Everything appears stable for your children.")
+        bullets.append(_msg("di.parent.all_stable", language))
 
     return bullets[:4]
 
 
-async def _admin_insights(user: User) -> list:
+async def _admin_insights(user: User, language: str = "en") -> list:
     all_preds     = await ProgressPrediction.find_all().to_list()
     cutoff        = datetime.utcnow() - timedelta(days=7)
     recent_alerts = await AIAlert.find(AIAlert.created_at >= cutoff).to_list()
@@ -943,38 +900,36 @@ async def _admin_insights(user: User) -> list:
         Course.status     == CourseStatusEnum.PUBLISHED,
     ).to_list()
 
+    from app.services.ai_messages import msg as _msg
     bullets: list[str] = []
 
     high_risk = [p for p in all_preds if p.risk_level == "high"]
     if high_risk:
         unique_s = len({p.student_id for p in high_risk})
-        bullets.append(f"{unique_s} student{'s' if unique_s > 1 else ''} {'are' if unique_s > 1 else 'is'} at high academic risk across the platform.")
+        bullets.append(_msg("di.admin.high_risk", language, n=unique_s))
 
     if recent_alerts:
-        n = len(recent_alerts)
-        bullets.append(f"{n} AI alert{'s' if n > 1 else ''} generated in the past 7 days.")
+        bullets.append(_msg("di.admin.alerts", language, n=len(recent_alerts)))
 
     if published:
-        n = len(published)
-        bullets.append(f"{n} active course{'s are' if n > 1 else ' is'} currently running across the platform.")
+        bullets.append(_msg("di.admin.active_courses", language, n=len(published)))
 
     at_risk  = [p for p in all_preds if p.prediction_label in ("at_risk", "needs_intervention")]
     improving = [p for p in all_preds if p.prediction_label == "likely_improving"]
     if at_risk:
-        n = len(at_risk)
-        bullets.append(f"{n} enrollment{'s' if n > 1 else ''} show a declining trend — consider a system-wide intervention review.")
+        bullets.append(_msg("di.admin.at_risk_enroll", language, n=len(at_risk)))
     elif improving:
-        n = len(improving)
-        bullets.append(f"{n} enrollment{'s' if n > 1 else ''} showing improvement — the platform is having a positive academic impact.")
+        bullets.append(_msg("di.admin.improving_enroll", language, n=len(improving)))
 
     if not bullets:
-        bullets.append("System performance looks stable. No urgent patterns detected.")
+        bullets.append(_msg("di.admin.stable", language))
 
     return bullets[:4]
 
 
 @router.get("/dashboard-insights")
 async def get_dashboard_insights(
+    language: str = Query(default="en"),
     current_user: User = Depends(get_current_user),
 ):
     """Role-aware AI insight bullets for the dashboard overview.
@@ -988,13 +943,13 @@ async def get_dashboard_insights(
     Admin:   platform-wide risk counts, recent alerts, active courses.
     """
     if current_user.role == RoleEnum.TEACHER:
-        bullets = await _teacher_insights(current_user)
+        bullets = await _teacher_insights(current_user, language)
     elif current_user.role == RoleEnum.STUDENT:
-        bullets = await _student_insights(current_user)
+        bullets = await _student_insights(current_user, language)
     elif current_user.role == RoleEnum.PARENT:
-        bullets = await _parent_insights(current_user)
+        bullets = await _parent_insights(current_user, language)
     elif current_user.role == RoleEnum.ADMIN:
-        bullets = await _admin_insights(current_user)
+        bullets = await _admin_insights(current_user, language)
     else:
         bullets = []
 

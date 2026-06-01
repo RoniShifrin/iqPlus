@@ -27,7 +27,7 @@ from app.repositories import (
 
 logger = logging.getLogger(__name__)
 
-# Weights (must sum to 1.0)
+# Default weights (must sum to 1.0) — used when a course has no custom scoring_weights
 W_GRADES     = 0.50
 W_ATTENDANCE = 0.20
 W_FEEDBACK   = 0.20
@@ -49,6 +49,15 @@ def _classify(score: float) -> ScoreClassificationEnum:
 async def compute_and_save(student_id: str, course_id: str) -> PerformanceScore | None:
     """Compute the performance score and persist it.  Returns the saved document."""
     try:
+        # Load course-specific weights; fall back to module defaults for legacy courses
+        from app.repositories import CourseRepository
+        course = await CourseRepository.get_by_id(course_id)
+        sw = (course.scoring_weights or {}) if course else {}
+        w_grades     = sw.get('grades',     W_GRADES * 100) / 100
+        w_attendance = sw.get('attendance', W_ATTENDANCE * 100) / 100
+        w_feedback   = sw.get('feedback',   W_FEEDBACK * 100) / 100
+        w_trend      = sw.get('trend',      W_TREND * 100) / 100
+
         # Grades component
         records = await LessonRecordRepository.get_by_student_course(
             student_id, course_id, limit=50
@@ -90,12 +99,12 @@ async def compute_and_save(student_id: str, course_id: str) -> PerformanceScore 
             else:
                 feedback_raw = 50.0  # neutral default when no feedback exists
 
-        # Composite score
+        # Composite score — uses per-course weights (or defaults for legacy courses)
         score = (
-            grade_raw     * W_GRADES
-            + attendance_raw * W_ATTENDANCE
-            + feedback_raw   * W_FEEDBACK
-            + trend_raw      * W_TREND
+            grade_raw     * w_grades
+            + attendance_raw * w_attendance
+            + feedback_raw   * w_feedback
+            + trend_raw      * w_trend
         )
         score = round(min(max(score, 0.0), 100.0), 2)
         classification = _classify(score)
