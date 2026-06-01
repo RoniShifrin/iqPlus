@@ -34,7 +34,7 @@ const SENTIMENT_COLOR: Record<string, string> = {
 };
 
 export const ParentDashboard: React.FC = () => {
-  const { t } = useApp();
+  const { t, lang } = useApp();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const initTab = searchParams.get('tab') ?? 'schedule';
@@ -140,6 +140,13 @@ export const ParentDashboard: React.FC = () => {
       ]).finally(() => setInsightsLoading(false));
     }
   }, [tab, selectedChild]);
+
+  useEffect(() => {
+    const childId = selectedChild >= 0 ? children[selectedChild]?.id : undefined;
+    if (tab === 'insights' && childId) {
+      apiService.getStudentAIInsights(childId).then(r => setAiInsights(r.data ?? null)).catch(() => {});
+    }
+  }, [lang]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load materials — for specific child (materials tab) or all children (all-children view)
   useEffect(() => {

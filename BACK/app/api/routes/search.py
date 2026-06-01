@@ -25,7 +25,11 @@ async def search(
 
     search_courses = type in (None, "courses")
     search_students = type in (None, "students") and current_user.role in (RoleEnum.ADMIN, RoleEnum.TEACHER)
-    search_teachers = type in (None, "teachers") and current_user.role == RoleEnum.ADMIN
+    # Admins/teachers can list all teachers; students/parents must type something to search teachers
+    search_teachers = type in (None, "teachers") and (
+        current_user.role in (RoleEnum.ADMIN, RoleEnum.TEACHER)
+        or (current_user.role in (RoleEnum.STUDENT, RoleEnum.PARENT) and bool(q_lower))
+    )
 
     if search_courses:
         from app.models import CourseStatusEnum, VisibilityScopeEnum

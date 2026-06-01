@@ -43,7 +43,7 @@ const SCORE_LABEL: Record<string, string> = {
 
 export const StudentDashboard: React.FC = () => {
   const { user } = useAuth();
-  const { t } = useApp();
+  const { t, lang } = useApp();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const initTab = searchParams.get('tab') ?? 'overview';
@@ -135,6 +135,10 @@ export const StudentDashboard: React.FC = () => {
     }
     return () => { mounted = false; };
   }, [tab]);
+
+  useEffect(() => {
+    if (tab === 'overview') loadDashInsights();
+  }, [lang]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const courses: any[] = data?.courses || [];
 

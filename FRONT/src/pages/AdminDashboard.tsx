@@ -85,7 +85,7 @@ const PendingUserRow: React.FC<{
 };
 
 export const AdminDashboard: React.FC = () => {
-  const { t } = useApp();
+  const { t, lang } = useApp();
   const statusActive = t('enrollment.active');
   const statusInactive = t('enrollment.inactive');
   const [searchParams] = useSearchParams();
@@ -380,6 +380,11 @@ export const AdminDashboard: React.FC = () => {
     if (tab === 'pending')   loadPending();
     if (tab === 'overview')  loadDashInsights();
   }, [tab]);
+
+  useEffect(() => {
+    loadDashInsights();
+    if (tab === 'ai') loadAiOverview();
+  }, [lang]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleRoleChange = async (user: any, newRole: string) => {
     if (!window.confirm(`Change ${user.display_name}'s role from "${user.role}" to "${newRole}"?`)) return;

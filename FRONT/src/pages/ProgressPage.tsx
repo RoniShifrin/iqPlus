@@ -76,7 +76,7 @@ const ScoreBreakdown: React.FC<{ score: any }> = ({ score }) => {
 
 /* ── Student view ── */
 const StudentView: React.FC<{ userId: string }> = ({ userId }) => {
-  const { t } = useApp();
+  const { t, lang } = useApp();
   const [scores, setScores]         = useState<any[]>([]);
   const [predictions, setPreds]     = useState<any[]>([]);
   const [aiInsights, setAiInsights] = useState<any>(null);
@@ -98,6 +98,12 @@ const StudentView: React.FC<{ userId: string }> = ({ userId }) => {
     ]).finally(() => { if (mounted) setLoading(false); });
     return () => { mounted = false; };
   }, [userId]);
+
+  useEffect(() => {
+    let mounted = true;
+    apiService.getStudentAIInsights(userId).then(r => { if (mounted) setAiInsights(r.data); }).catch(() => {});
+    return () => { mounted = false; };
+  }, [lang]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) return <div className="flex justify-center py-16"><div className="w-7 h-7 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>;
 

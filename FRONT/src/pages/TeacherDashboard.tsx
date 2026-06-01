@@ -46,7 +46,7 @@ const UPDATE_BADGE: Record<string, string> = {
 
 export const TeacherDashboard: React.FC = () => {
   const { user } = useAuth();
-  const { t } = useApp();
+  const { t, lang } = useApp();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const initialTab = searchParams.get('tab') || 'overview';
@@ -177,6 +177,10 @@ export const TeacherDashboard: React.FC = () => {
       loadDashInsights();
     }
   }, [tab]);
+
+  useEffect(() => {
+    if (tab === 'overview') loadDashInsights();
+  }, [lang]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadAlerts = () => {
     setAlertsLoading(true);

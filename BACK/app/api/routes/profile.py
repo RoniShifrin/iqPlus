@@ -196,8 +196,10 @@ async def get_user_profile(
         if target.role not in (RoleEnum.STUDENT, RoleEnum.TEACHER):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
     elif role == RoleEnum.PARENT:
-        # Parents can only view their linked children
-        if user_id not in (current_user.linked_student_ids or []):
+        # Parents can view their linked children and teachers
+        is_linked_child = user_id in (current_user.linked_student_ids or [])
+        is_teacher = target.role == RoleEnum.TEACHER
+        if not is_linked_child and not is_teacher:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
     elif role == RoleEnum.STUDENT:
         # Students can view teachers
