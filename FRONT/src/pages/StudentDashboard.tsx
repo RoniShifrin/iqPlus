@@ -252,6 +252,10 @@ export const StudentDashboard: React.FC = () => {
                     )}
                   </div>
 
+                  {/* AI Insights Layer: Weekly Summary, Score Explanation, Action Items */}
+                  {user?.id && (
+                    <AIInsightsLayer userId={user.id} showScoreExplain />
+                  )}
                 </div>
 
                 {/* Right: Chat + Updates */}
@@ -333,10 +337,6 @@ export const StudentDashboard: React.FC = () => {
                     onRefresh={loadDashInsights}
                   />
 
-                  {/* AI Insights Layer: Weekly Summary, Score Explanation, Action Items */}
-                  {user?.id && (
-                    <AIInsightsLayer userId={user.id} showScoreExplain />
-                  )}
                 </div>
               </div>
             </>

@@ -530,9 +530,6 @@ export const AdminDashboard: React.FC = () => {
                 onRefresh={loadDashInsights}
               />
 
-              {/* AI Insights Layer: Weekly Summary, Action Items */}
-              <AIInsightsLayer userId={''} showScoreExplain={false} />
-
               {/* Courses table */}
               <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 lg:col-span-2">
                 <div className="flex items-center justify-between mb-4">
@@ -585,6 +582,11 @@ export const AdminDashboard: React.FC = () => {
                   </table>
                   {courses.length === 0 && <p className="text-center text-gray-400 py-8">No courses yet</p>}
                 </div>
+              </div>
+
+              {/* AI Insights Layer: Weekly Summary, Action Items */}
+              <div className="lg:col-span-2">
+                <AIInsightsLayer userId={''} showScoreExplain={false} />
               </div>
 
               {/* System Statistics */}
