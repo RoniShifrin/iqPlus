@@ -13,18 +13,38 @@ export const LoginPage: React.FC = () => {
   const { login } = useAuth();
   const navigate  = useNavigate();
 
+  const isNetworkError = (err: unknown) =>
+    err instanceof TypeError ||
+    (err instanceof Error && /failed to fetch|network/i.test(err.message));
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
-    try {
-      await login(email, password);
-      navigate('/');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed');
-    } finally {
-      setLoading(false);
+
+    const MAX_RETRIES = 3;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        await login(email, password);
+        navigate('/');
+        return;
+      } catch (err) {
+        if (isNetworkError(err) && attempt < MAX_RETRIES) {
+          const remaining = MAX_RETRIES - attempt;
+          setError(`Server is starting up — retrying… (${remaining} attempt${remaining !== 1 ? 's' : ''} left)`);
+          await new Promise(r => setTimeout(r, 5000));
+          continue;
+        }
+        setError(
+          isNetworkError(err)
+            ? 'Could not reach the server. Please wait a moment and try again.'
+            : err instanceof Error ? err.message : 'Login failed'
+        );
+        break;
+      }
     }
+
+    setLoading(false);
   };
 
   return (

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AppProvider } from './contexts/AppContext';
@@ -60,6 +60,11 @@ const RoleTabRedirect: React.FC<{ path: string }> = ({ path }) => {
 };
 
 export default function App() {
+  useEffect(() => {
+    const base = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+    fetch(`${base}/health`).catch(() => {});
+  }, []);
+
   return (
     <AppProvider>
     <AuthProvider>
