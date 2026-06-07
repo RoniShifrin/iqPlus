@@ -10,4 +10,15 @@ export default defineConfig({
   preview: {
     port: 5173,
   },
+  build: {
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom', 'react-router-dom'],
+          firebase: ['firebase/app', 'firebase/auth'],
+        },
+      },
+    },
+  },
 })
