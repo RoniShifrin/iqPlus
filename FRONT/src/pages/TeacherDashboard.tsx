@@ -430,10 +430,11 @@ export const TeacherDashboard: React.FC = () => {
                       ))}
                     </div>
                   )}
-                </div>
+                {/* AI Insights Layer: Weekly Summary, Action Items */}
+                <AIInsightsLayer userId={''} showScoreExplain={false} />
               </div>
 
-              {/* Right: Schedule + Chat + AI Alerts */}
+              {/* Right: Chat + AI Alerts */}
               <div className="space-y-6">
                 {/* Chat preview */}
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
@@ -496,9 +497,6 @@ export const TeacherDashboard: React.FC = () => {
                   loading={dashInsightsLoading}
                   onRefresh={loadDashInsights}
                 />
-
-                {/* AI Insights Layer: Weekly Summary, Action Items */}
-                <AIInsightsLayer userId={''} showScoreExplain={false} />
               </div>
             </div>
 
