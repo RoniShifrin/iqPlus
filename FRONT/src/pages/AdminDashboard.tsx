@@ -465,6 +465,19 @@ export const AdminDashboard: React.FC = () => {
           </div>
 
           {tab === 'overview' && (
+            <>
+            {/* Schedule — full width at top */}
+            <div className="mb-6 bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="font-bold text-gray-800 text-sm">Schedule Overview</h2>
+                <button onClick={() => setTab('schedule')} className="text-blue-600 text-xs hover:underline">Full Schedule</button>
+              </div>
+              {scheduleSlots.length > 0 ? (
+                <WeeklySchedule slots={scheduleSlots} />
+              ) : (
+                <EmptyState icon="📅" title={t('admin.noScheduled')} />
+              )}
+            </div>
             <div className="grid lg:grid-cols-2 gap-6">
               {/* Student Progress Distribution (real data) */}
               <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
@@ -508,19 +521,6 @@ export const AdminDashboard: React.FC = () => {
                     </div>
                   );
                 })()}
-              </div>
-
-              {/* Schedule Overview */}
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="font-bold text-gray-800 text-sm">Schedule Overview</h2>
-                  <span className="text-xs text-gray-400">This Week</span>
-                </div>
-                {scheduleSlots.length > 0 ? (
-                  <WeeklySchedule slots={scheduleSlots} />
-                ) : (
-                  <EmptyState icon="📅" title={t('admin.noScheduled')} />
-                )}
               </div>
 
               {/* AI Dashboard Insights */}
@@ -607,6 +607,7 @@ export const AdminDashboard: React.FC = () => {
                 </div>
               </div>
             </div>
+            </>
           )}
 
           {/* Create User Modal */}

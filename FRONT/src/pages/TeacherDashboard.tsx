@@ -328,6 +328,26 @@ export const TeacherDashboard: React.FC = () => {
 
           {tab === 'overview' && (
             <>
+            {/* Full-width weekly timetable — top of overview */}
+            <div className="mb-6 bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="font-bold text-gray-800 text-sm">{t('dash.weeklyTimetable')}</h2>
+                  {scheduleSlots.length > 0 && (
+                    <p className="text-[11px] text-gray-400 mt-0.5">{t('dash.clickToOpen')}</p>
+                  )}
+                </div>
+                <button onClick={() => setTab('schedule')} className="text-blue-600 text-xs hover:underline">{t('dash.fullSchedule')}</button>
+              </div>
+              {scheduleSlots.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-8">{t('dash.noScheduleData')}</p>
+              ) : (
+                <WeeklySchedule
+                  slots={scheduleSlots}
+                  onSlotClick={slot => slot.id && navigate(`/courses/${slot.id}`)}
+                />
+              )}
+            </div>
             <div className="grid lg:grid-cols-3 gap-6">
               {/* Left: Students + Courses */}
               <div className="lg:col-span-2 space-y-6">
@@ -482,26 +502,6 @@ export const TeacherDashboard: React.FC = () => {
               </div>
             </div>
 
-            {/* Full-width weekly timetable */}
-            <div className="mt-6 bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h2 className="font-bold text-gray-800 text-sm">{t('dash.weeklyTimetable')}</h2>
-                  {scheduleSlots.length > 0 && (
-                    <p className="text-[11px] text-gray-400 mt-0.5">{t('dash.clickToOpen')}</p>
-                  )}
-                </div>
-                <button onClick={() => setTab('schedule')} className="text-blue-600 text-xs hover:underline">{t('dash.fullSchedule')}</button>
-              </div>
-              {scheduleSlots.length === 0 ? (
-                <p className="text-sm text-gray-400 text-center py-8">{t('dash.noScheduleData')}</p>
-              ) : (
-                <WeeklySchedule
-                  slots={scheduleSlots}
-                  onSlotClick={slot => slot.id && navigate(`/courses/${slot.id}`)}
-                />
-              )}
-            </div>
             </>
           )}
 
