@@ -22,7 +22,8 @@ export const LoginPage: React.FC = () => {
     setError('');
     setLoading(true);
 
-    const MAX_RETRIES = 3;
+    const MAX_RETRIES = 8;
+    const RETRY_DELAY = 10000;
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
         await login(email, password);
@@ -32,12 +33,12 @@ export const LoginPage: React.FC = () => {
         if (isNetworkError(err) && attempt < MAX_RETRIES) {
           const remaining = MAX_RETRIES - attempt;
           setError(`Server is starting up — retrying… (${remaining} attempt${remaining !== 1 ? 's' : ''} left)`);
-          await new Promise(r => setTimeout(r, 5000));
+          await new Promise(r => setTimeout(r, RETRY_DELAY));
           continue;
         }
         setError(
           isNetworkError(err)
-            ? 'Could not reach the server. Please wait a moment and try again.'
+            ? 'Server is unavailable. Please try again in a minute.'
             : err instanceof Error ? err.message : 'Login failed'
         );
         break;

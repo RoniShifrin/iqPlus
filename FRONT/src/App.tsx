@@ -62,7 +62,18 @@ const RoleTabRedirect: React.FC<{ path: string }> = ({ path }) => {
 export default function App() {
   useEffect(() => {
     const base = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
-    fetch(`${base}/health`).catch(() => {});
+    const ping = () => fetch(`${base}/health`).catch(() => {});
+    ping();
+    // keep pinging every 8s until the server responds (handles Render cold start)
+    const interval = setInterval(async () => {
+      try {
+        const r = await fetch(`${base}/health`);
+        if (r.ok) clearInterval(interval);
+      } catch {
+        // still waking up
+      }
+    }, 8000);
+    return () => clearInterval(interval);
   }, []);
 
   return (
