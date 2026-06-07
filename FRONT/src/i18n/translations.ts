@@ -410,6 +410,16 @@ const en: Dict = {
   'ai.refresh':            'Refresh',
   'ai.generatedFrom':      'Based on real system data',
 
+  /* ── AI Insights Layer ── */
+  'ail.weeklySummaryTitle':    'Weekly Summary',
+  'ail.scoreExplainTitle':     'Score Explanation',
+  'ail.actionItemsTitle':      'Action Items',
+  'ail.noData':                'Not enough data yet for this section.',
+  'ail.loading':               'Generating insight…',
+  'ail.error':                 'Could not load this insight. Dashboard continues normally.',
+  'ail.basedOnData':           'Based on your system data',
+  'ail.recommendations':       'Recommendations only — no automatic actions are taken.',
+
   /* ── Academic Planner ── */
   'planner.title':              'Academic Planner',
   'planner.subtitle':           'AI-powered schedule planning and course recommendations',
@@ -1066,6 +1076,16 @@ const he: Dict = {
   'ai.insightsFallback':   'אין תובנות עדיין — הן יופיעו כשתלמידים ישתמשו במערכת.',
   'ai.refresh':            'רענן',
   'ai.generatedFrom':      'מבוסס על נתוני מערכת אמיתיים',
+
+  /* ── AI Insights Layer ── */
+  'ail.weeklySummaryTitle':    'סיכום שבועי',
+  'ail.scoreExplainTitle':     'הסבר ציון',
+  'ail.actionItemsTitle':      'פעולות מומלצות',
+  'ail.noData':                'אין עדיין מספיק נתונים לסעיף זה.',
+  'ail.loading':               'מייצר תובנה…',
+  'ail.error':                 'לא ניתן לטעון תובנה זו. לוח הבקרה ממשיך לפעול כרגיל.',
+  'ail.basedOnData':           'מבוסס על נתוני המערכת שלך',
+  'ail.recommendations':       'המלצות בלבד — לא מבוצעות פעולות אוטומטיות.',
 
   /* ── Academic Planner ── */
   'planner.title':              'מתכנן לימודים',

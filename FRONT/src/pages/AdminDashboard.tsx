@@ -11,6 +11,7 @@ import { RiskBadge } from '../components/RiskBadge';
 import { UserAvatar } from '../components/UserAvatar';
 import { formatActivityDescription } from '../utils/enumLabels';
 import { AIInsightsCard } from '../components/AIInsightsCard';
+import { AIInsightsLayer } from '../components/AIInsightsLayer';
 
 const VALID_TABS = new Set(['overview','students','teachers','schedule','health','audit','updates','ai','pending']);
 
@@ -528,6 +529,9 @@ export const AdminDashboard: React.FC = () => {
                 loading={dashInsightsLoading}
                 onRefresh={loadDashInsights}
               />
+
+              {/* AI Insights Layer: Weekly Summary, Action Items */}
+              <AIInsightsLayer userId={''} showScoreExplain={false} />
 
               {/* Courses table */}
               <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 lg:col-span-2">

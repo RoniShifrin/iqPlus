@@ -11,6 +11,7 @@ import { QuickFeedbackModal } from '../components/QuickFeedbackModal';
 import { QuickEmailModal } from '../components/QuickEmailModal';
 import { SendMessageModal } from '../components/SendMessageModal';
 import { AIInsightsCard } from '../components/AIInsightsCard';
+import { AIInsightsLayer } from '../components/AIInsightsLayer';
 import { apiService } from '../services/apiService';
 import { useAuth } from '../contexts/AuthContext';
 import { UserAvatar } from '../components/UserAvatar';
@@ -475,6 +476,9 @@ export const TeacherDashboard: React.FC = () => {
                   loading={dashInsightsLoading}
                   onRefresh={loadDashInsights}
                 />
+
+                {/* AI Insights Layer: Weekly Summary, Action Items */}
+                <AIInsightsLayer userId={''} showScoreExplain={false} />
               </div>
             </div>
 

@@ -9,6 +9,7 @@ import { EmptyState } from '../components/widgets/EmptyState';
 import { ErrorState } from '../components/widgets/ErrorState';
 import { apiService } from '../services/apiService';
 import { formatActivityDescription } from '../utils/enumLabels';
+import { AIInsightsLayer } from '../components/AIInsightsLayer';
 
 const PARENT_TAB_KEYS = ['schedule', 'courses', 'materials', 'progress', 'updates', 'insights'];
 
@@ -1104,6 +1105,15 @@ export const ParentDashboard: React.FC = () => {
                             ))}
                           </div>
                         </div>
+                      )}
+
+                      {/* AI Insights Layer: Weekly Summary, Score Explanation, Action Items */}
+                      {selectedChildId && (
+                        <AIInsightsLayer
+                          userId={selectedChildId}
+                          childStudentId={selectedChildId}
+                          showScoreExplain
+                        />
                       )}
 
                       {!aiInsights && predictions.length === 0 && aiAlerts.length === 0 && (

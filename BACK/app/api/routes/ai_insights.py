@@ -954,3 +954,659 @@ async def get_dashboard_insights(
         bullets = []
 
     return {"insights": bullets, "count": len(bullets)}
+
+
+# ── 7. Weekly Summary ──────────────────────────────────────────────────────────
+
+@router.get("/weekly-summary")
+async def get_weekly_summary(
+    student_id: Optional[str] = None,
+    course_id: Optional[str] = None,
+    language: str = Query(default="en"),
+    current_user: User = Depends(get_current_user),
+):
+    """Role-aware AI weekly summary.
+
+    Reads from cached PerformanceScore, ProgressPrediction, LearningInsight,
+    and AIAlert — no recomputation at request time.
+
+    RBAC:
+      Student  → own data only
+      Parent   → linked children only (student_id must be in linked_student_ids)
+      Teacher  → courses they teach (optional course_id filter)
+      Admin    → system-wide summary
+    """
+    from app.services.ai_messages import msg as _msg
+    from app.models import WeeklySummary
+
+    parts: list[str] = []
+    cutoff_7 = datetime.utcnow() - timedelta(days=7)
+
+    # ── Student ──────────────────────────────────────────────────────────────
+    if current_user.role == RoleEnum.STUDENT:
+        sid = str(current_user.id)
+        scores      = await PerformanceScoreRepository.list_by_student(sid)
+        predictions = await ProgressPredictionRepository.list_by_student(sid)
+        alerts      = await AIAlert.find(
+            AIAlert.student_id == sid,
+            AIAlert.created_at >= cutoff_7,
+        ).sort(-AIAlert.created_at).limit(5).to_list()
+
+        # Attendance signal from scores (attendance_score component)
+        if scores:
+            avg_att = sum(s.attendance_score for s in scores) / len(scores)
+            if avg_att >= 75:
+                parts.append(_msg("ws.student.attendance_good", language))
+            else:
+                parts.append(_msg("ws.student.attendance_poor", language))
+
+            avg_grade = sum(s.grade_score for s in scores) / len(scores)
+            if avg_grade >= 70:
+                parts.append(_msg("ws.student.grades_high", language))
+            else:
+                parts.append(_msg("ws.student.grades_low", language))
+
+        # Trend signal
+        improving = [p for p in predictions if p.prediction_label == "likely_improving"]
+        declining  = [p for p in predictions if p.prediction_label in ("at_risk", "needs_intervention")]
+        if improving and not declining:
+            parts.append(_msg("ws.student.trend_improving", language))
+        elif declining:
+            parts.append(_msg("ws.student.trend_declining", language))
+
+        # Feedback signal from recent feedback analysis
+        fa_recent = await FeedbackAnalysis.find(
+            FeedbackAnalysis.student_id == sid,
+            FeedbackAnalysis.created_at >= cutoff_7,
+        ).limit(10).to_list()
+        if fa_recent:
+            pos = sum(1 for f in fa_recent if f.sentiment_label == "positive")
+            neg = sum(1 for f in fa_recent if f.sentiment_label == "negative")
+            if pos > neg:
+                parts.append(_msg("ws.student.feedback_positive", language))
+            elif neg > pos:
+                parts.append(_msg("ws.student.feedback_concern", language))
+
+        # Alerts
+        if alerts:
+            parts.append(_msg("ws.student.alerts", language, n=len(alerts)))
+        else:
+            parts.append(_msg("ws.student.no_alerts", language))
+
+        if not parts:
+            parts.append(_msg("ws.no_data", language))
+
+        return {
+            "role": "student",
+            "summary": " ".join(parts),
+            "data_available": bool(scores or predictions),
+        }
+
+    # ── Parent ───────────────────────────────────────────────────────────────
+    if current_user.role == RoleEnum.PARENT:
+        linked = current_user.linked_student_ids or []
+        if not linked:
+            return {"role": "parent", "summary": _msg("di.parent.no_children", language), "data_available": False}
+
+        # Use requested student_id if it belongs to this parent; else first child
+        if student_id and student_id in linked:
+            target_id = student_id
+        else:
+            target_id = linked[0]
+
+        child = await UserRepository.get_by_id(target_id)
+        child_name = child.full_name() if child else "your child"
+
+        scores      = await PerformanceScoreRepository.list_by_student(target_id)
+        predictions = await ProgressPredictionRepository.list_by_student(target_id)
+        alerts      = await AIAlert.find(
+            AIAlert.student_id == target_id,
+            AIAlert.created_at >= cutoff_7,
+        ).sort(-AIAlert.created_at).limit(3).to_list()
+
+        # Attendance from WeeklySummary (most recent)
+        ws_docs = await WeeklySummary.find(
+            WeeklySummary.student_id == target_id,
+        ).sort(-WeeklySummary.week_start).limit(5).to_list()
+        if ws_docs:
+            total_present = sum(w.attendance_present for w in ws_docs)
+            total_lessons = sum(w.attendance_present + w.attendance_absent for w in ws_docs)
+            if total_lessons > 0:
+                parts.append(_msg("ws.parent.attendance_ok", language,
+                                  child=child_name, present=total_present, total=total_lessons))
+
+        # Trend
+        declining  = [p for p in predictions if p.prediction_label in ("at_risk", "needs_intervention")]
+        improving  = [p for p in predictions if p.prediction_label == "likely_improving"]
+        if declining:
+            parts.append(_msg("ws.parent.trend_declining", language, child=child_name))
+        elif improving:
+            parts.append(_msg("ws.parent.trend_improving", language, child=child_name))
+
+        # Feedback
+        fa_recent = await FeedbackAnalysis.find(
+            FeedbackAnalysis.student_id == target_id,
+            FeedbackAnalysis.created_at >= cutoff_7,
+        ).limit(10).to_list()
+        if fa_recent:
+            pos = sum(1 for f in fa_recent if f.sentiment_label == "positive")
+            neg = sum(1 for f in fa_recent if f.sentiment_label == "negative")
+            if pos > neg:
+                parts.append(_msg("ws.parent.feedback_positive", language, child=child_name))
+            elif neg > pos:
+                parts.append(_msg("ws.parent.feedback_concern", language, child=child_name))
+
+        # Alerts
+        if alerts:
+            msg_text = alerts[0].message[:80] + ("…" if len(alerts[0].message) > 80 else "")
+            parts.append(_msg("ws.parent.alert_active", language, child=child_name, message=msg_text))
+        elif not declining:
+            parts.append(_msg("ws.parent.all_good", language, child=child_name))
+
+        if not parts:
+            parts.append(_msg("ws.no_data", language))
+
+        return {
+            "role": "parent",
+            "child_name": child_name,
+            "summary": " ".join(parts),
+            "data_available": bool(scores or ws_docs),
+        }
+
+    # ── Teacher ──────────────────────────────────────────────────────────────
+    if current_user.role == RoleEnum.TEACHER:
+        published = await Course.find(
+            Course.teacher_id == str(current_user.id),
+            Course.deleted_at == None,
+            Course.status     == CourseStatusEnum.PUBLISHED,
+        ).to_list()
+
+        if not published:
+            return {"role": "teacher", "summary": _msg("ws.teacher.no_courses", language), "data_available": False}
+
+        # Filter to requested course if given
+        if course_id:
+            published = [c for c in published if str(c.id) == course_id]
+            if not published:
+                raise HTTPException(status_code=403, detail="Course not found or not yours")
+
+        any_data = False
+        for course in published[:4]:  # cap to avoid N+1 on large course lists
+            cid = str(course.id)
+            enrollments = await EnrollmentRepository.list_by_course(cid)
+            active = [e for e in enrollments if e.status == EnrollmentStatusEnum.ACTIVE]
+            if not active:
+                continue
+            any_data = True
+
+            scored: list = []
+            high_risk_count = 0
+            improving_count = 0
+            for enr in active[:20]:
+                score = await PerformanceScoreRepository.get(enr.student_id, cid)
+                pred  = await ProgressPredictionRepository.get(enr.student_id, cid)
+                if score:
+                    scored.append(score.score)
+                if pred:
+                    if pred.risk_level == "high":
+                        high_risk_count += 1
+                    if pred.prediction_label == "likely_improving":
+                        improving_count += 1
+
+            if scored:
+                avg = round(sum(scored) / len(scored), 1)
+                parts.append(_msg("ws.teacher.class_avg", language, course=course.name, avg=avg))
+
+            if high_risk_count > 0:
+                parts.append(_msg("ws.teacher.risk_students", language, course=course.name, n=high_risk_count))
+            if improving_count > 0:
+                parts.append(_msg("ws.teacher.improving_students", language, course=course.name, n=improving_count))
+
+        if not parts:
+            parts.append(_msg("ws.teacher.all_ok", language))
+
+        return {
+            "role": "teacher",
+            "summary": " ".join(parts),
+            "data_available": any_data,
+        }
+
+    # ── Admin ─────────────────────────────────────────────────────────────────
+    if current_user.role == RoleEnum.ADMIN:
+        all_preds     = await ProgressPrediction.find_all().to_list()
+        recent_alerts = await AIAlert.find(AIAlert.created_at >= cutoff_7).to_list()
+        published     = await Course.find(
+            Course.deleted_at == None,
+            Course.status     == CourseStatusEnum.PUBLISHED,
+        ).to_list()
+
+        parts.append(_msg("ws.admin.active_courses", language, n=len(published)))
+
+        high_risk_students = {p.student_id for p in all_preds if p.risk_level == "high"}
+        if high_risk_students:
+            parts.append(_msg("ws.admin.risk_students", language, n=len(high_risk_students)))
+
+        if recent_alerts:
+            parts.append(_msg("ws.admin.recent_alerts", language, n=len(recent_alerts)))
+
+        # Declining courses (≥40% at_risk)
+        course_at_risk: dict = {}
+        course_total: dict = {}
+        for p in all_preds:
+            cid = p.course_id
+            course_total[cid] = course_total.get(cid, 0) + 1
+            if p.prediction_label in ("at_risk", "needs_intervention"):
+                course_at_risk[cid] = course_at_risk.get(cid, 0) + 1
+        declining_count = sum(
+            1 for cid, cnt in course_at_risk.items()
+            if course_total.get(cid, 0) > 0 and cnt / course_total[cid] >= 0.4
+        )
+        if declining_count:
+            parts.append(_msg("ws.admin.declining_courses", language, n=declining_count))
+
+        if len(parts) <= 1:
+            parts.append(_msg("ws.admin.stable", language))
+
+        return {
+            "role": "admin",
+            "summary": " ".join(parts),
+            "data_available": bool(all_preds or published),
+        }
+
+    return {"role": "unknown", "summary": "", "data_available": False}
+
+
+# ── 8. Score Explanation ────────────────────────────────────────────────────────
+
+@router.get("/score-explanation/{student_id}")
+async def get_score_explanation(
+    student_id: str,
+    course_id: Optional[str] = None,
+    language: str = Query(default="en"),
+    current_user: User = Depends(get_current_user),
+):
+    """Explain why a student's performance score is high, medium, or low.
+
+    Reads from existing PerformanceScore — no score recomputation.
+    Adds a human-readable score_explanation string to the response.
+
+    RBAC:
+      Student  → own score only
+      Parent   → linked children only
+      Teacher  → students enrolled in their courses
+      Admin    → any student
+    """
+    from app.services.ai_messages import msg as _msg
+    from app.models import Enrollment, EnrollmentStatusEnum
+
+    # RBAC
+    if current_user.role == RoleEnum.STUDENT and student_id != str(current_user.id):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if current_user.role == RoleEnum.PARENT:
+        if student_id not in (current_user.linked_student_ids or []):
+            raise HTTPException(status_code=403, detail="Not linked to this student")
+    if current_user.role == RoleEnum.TEACHER and not course_id:
+        # Teacher must supply a course_id to verify access
+        raise HTTPException(status_code=422, detail="course_id is required for teacher role")
+    if current_user.role == RoleEnum.TEACHER and course_id:
+        course = await CourseRepository.get_by_id(course_id)
+        if not course or course.deleted_at or course.teacher_id != str(current_user.id):
+            raise HTTPException(status_code=403, detail="Not your course")
+        enrollments = await EnrollmentRepository.list_by_course(course_id)
+        enrolled_ids = {e.student_id for e in enrollments if e.status == EnrollmentStatusEnum.ACTIVE}
+        if student_id not in enrolled_ids:
+            raise HTTPException(status_code=403, detail="Student not enrolled in this course")
+
+    # Load score(s)
+    if course_id:
+        score_doc = await PerformanceScoreRepository.get(student_id, course_id)
+        scores = [score_doc] if score_doc else []
+    else:
+        scores = await PerformanceScoreRepository.list_by_student(student_id)
+
+    if not scores:
+        return {
+            "student_id":       student_id,
+            "course_id":        course_id,
+            "score_explanation": _msg("se.no_data", language),
+            "scores":           [],
+            "data_available":   False,
+        }
+
+    # Use a single score when course_id provided; otherwise aggregate
+    explanations = []
+    for ps in scores[:5]:  # cap to 5 to avoid huge responses
+        parts: list[str] = []
+
+        # Intro sentence based on classification
+        cls = ps.classification.value if hasattr(ps.classification, "value") else ps.classification
+        score_val = round(ps.score)
+        intro_key = {
+            "excellent":      "se.intro_excellent",
+            "good":           "se.intro_good",
+            "average":        "se.intro_average",
+            "needs_attention":"se.intro_needs_attention",
+        }.get(cls, "se.intro_average")
+        parts.append(_msg(intro_key, language, score=score_val))
+
+        # Component analysis — find strongest and weakest
+        components = {
+            "grades":     ps.grade_score,
+            "attendance": ps.attendance_score,
+            "feedback":   ps.feedback_score,
+            "trend":      ps.trend_score,
+        }
+        sorted_comps = sorted(components.items(), key=lambda x: x[1], reverse=True)
+        top_comp, top_val    = sorted_comps[0]
+        bottom_comp, bot_val = sorted_comps[-1]
+
+        # Grades
+        if ps.grade_score >= 70:
+            parts.append(_msg("se.grades_positive", language, grade_score=round(ps.grade_score)))
+        elif ps.grade_score < 50:
+            parts.append(_msg("se.grades_negative", language, grade_score=round(ps.grade_score)))
+
+        # Attendance
+        if ps.attendance_score >= 75:
+            parts.append(_msg("se.attendance_positive", language, att_score=round(ps.attendance_score)))
+        elif ps.attendance_score < 60:
+            parts.append(_msg("se.attendance_negative", language, att_score=round(ps.attendance_score)))
+
+        # Feedback
+        if ps.feedback_score >= 70:
+            parts.append(_msg("se.feedback_positive", language, fb_score=round(ps.feedback_score)))
+        elif ps.feedback_score < 40:
+            parts.append(_msg("se.feedback_negative", language, fb_score=round(ps.feedback_score)))
+
+        # Trend
+        if ps.trend_score >= 80:
+            parts.append(_msg("se.trend_positive", language))
+        elif ps.trend_score <= 20:
+            parts.append(_msg("se.trend_negative", language))
+
+        # Overall guidance
+        factor_labels_en = {
+            "grades": "grades", "attendance": "attendance",
+            "feedback": "teacher feedback", "trend": "progress trend",
+        }
+        factor_labels_he = {
+            "grades": "ציונים", "attendance": "נוכחות",
+            "feedback": "משוב המורה", "trend": "מגמת ההתקדמות",
+        }
+        factor_labels = factor_labels_he if language == "he" else factor_labels_en
+        if top_val >= 70:
+            parts.append(_msg("se.overall_strong", language, top_factor=factor_labels.get(top_comp, top_comp)))
+        if bot_val < 50:
+            parts.append(_msg("se.overall_weak", language, bottom_factor=factor_labels.get(bottom_comp, bottom_comp)))
+
+        # Limited data flag
+        missing_components = sum(1 for v in components.values() if v == 50.0)
+        if missing_components >= 2:
+            parts.append(_msg("se.limited_data", language))
+
+        explanation_text = " ".join(parts)
+        explanations.append({
+            "course_id":       ps.course_id,
+            "score":           round(ps.score, 1),
+            "classification":  cls,
+            "grade_score":     round(ps.grade_score, 1),
+            "attendance_score":round(ps.attendance_score, 1),
+            "feedback_score":  round(ps.feedback_score, 1),
+            "trend_score":     round(ps.trend_score, 1),
+            "score_explanation": explanation_text,
+        })
+
+    return {
+        "student_id":    student_id,
+        "course_id":     course_id,
+        "scores":        explanations,
+        "data_available": True,
+    }
+
+
+# ── 9. Action Items ─────────────────────────────────────────────────────────────
+
+@router.get("/action-items")
+async def get_action_items(
+    student_id: Optional[str] = None,
+    course_id: Optional[str] = None,
+    language: str = Query(default="en"),
+    current_user: User = Depends(get_current_user),
+):
+    """Role-aware AI-generated practical action items.
+
+    Recommendations only — the system does not automatically perform any of them.
+    Reads from cached PerformanceScore, ProgressPrediction, and AIAlert.
+
+    RBAC:
+      Student  → own action items
+      Parent   → linked children
+      Teacher  → their courses
+      Admin    → system-wide
+    """
+    from app.services.ai_messages import msg as _msg
+    from app.models import Enrollment, EnrollmentStatusEnum
+
+    items: list[str] = []
+    cutoff_7 = datetime.utcnow() - timedelta(days=7)
+
+    # ── Student ──────────────────────────────────────────────────────────────
+    if current_user.role == RoleEnum.STUDENT:
+        sid         = str(current_user.id)
+        scores      = await PerformanceScoreRepository.list_by_student(sid)
+        predictions = await ProgressPredictionRepository.list_by_student(sid)
+        alerts      = await AIAlert.find(
+            AIAlert.student_id == sid,
+            AIAlert.created_at >= cutoff_7,
+        ).limit(3).to_list()
+
+        # Attendance check
+        if scores:
+            avg_att = sum(s.attendance_score for s in scores) / len(scores)
+            if avg_att < 70:
+                items.append(_msg("it.student.improve_attendance", language))
+
+        # Weak course
+        needs_attn = [s for s in scores if
+                      (s.classification.value if hasattr(s.classification, "value") else s.classification)
+                      == "needs_attention"]
+        if needs_attn:
+            course_obj = await CourseRepository.get_by_id(needs_attn[0].course_id)
+            course_name = course_obj.name if course_obj else "a course"
+            items.append(_msg("it.student.focus_weak_course", language, course=course_name))
+
+        # High workload
+        enrollments = await EnrollmentRepository.list_by_student(sid)
+        active_enr  = [e for e in enrollments if e.status == EnrollmentStatusEnum.ACTIVE]
+        if len(active_enr) >= 4 and needs_attn:
+            items.append(_msg("it.student.high_workload", language))
+
+        # Feedback review
+        fa_recent = await FeedbackAnalysis.find(
+            FeedbackAnalysis.student_id == sid,
+            FeedbackAnalysis.created_at >= cutoff_7,
+        ).limit(5).to_list()
+        if fa_recent and any(f.sentiment_label == "negative" for f in fa_recent):
+            items.append(_msg("it.student.check_feedback", language))
+
+        # Assignments / declining
+        declining = [p for p in predictions if p.prediction_label in ("at_risk", "needs_intervention")]
+        if declining and not needs_attn:
+            items.append(_msg("it.student.complete_assignments", language))
+
+        # All good
+        if not items:
+            items.append(_msg("it.student.keep_up", language))
+
+        return {"role": "student", "items": items[:5], "count": len(items[:5])}
+
+    # ── Parent ───────────────────────────────────────────────────────────────
+    if current_user.role == RoleEnum.PARENT:
+        linked = current_user.linked_student_ids or []
+        if not linked:
+            return {"role": "parent", "items": [_msg("di.parent.no_children", language)], "count": 1}
+
+        if student_id and student_id in linked:
+            target_id = student_id
+        else:
+            target_id = linked[0]
+
+        child = await UserRepository.get_by_id(target_id)
+        child_name = child.full_name() if child else "your child"
+
+        scores      = await PerformanceScoreRepository.list_by_student(target_id)
+        predictions = await ProgressPredictionRepository.list_by_student(target_id)
+        alerts      = await AIAlert.find(
+            AIAlert.student_id == target_id,
+            AIAlert.created_at >= cutoff_7,
+        ).limit(3).to_list()
+
+        # Attendance
+        if scores:
+            avg_att = sum(s.attendance_score for s in scores) / len(scores)
+            if avg_att < 70:
+                items.append(_msg("it.parent.check_attendance", language))
+
+        # High-risk alert
+        high_risk = [p for p in predictions if p.risk_level == "high"]
+        if high_risk or alerts:
+            items.append(_msg("it.parent.contact_teacher", language, child=child_name))
+
+        # Weak course
+        needs_attn = [s for s in scores if
+                      (s.classification.value if hasattr(s.classification, "value") else s.classification)
+                      == "needs_attention"]
+        if needs_attn:
+            course_obj = await CourseRepository.get_by_id(needs_attn[0].course_id)
+            course_name = course_obj.name if course_obj else "a course"
+            items.append(_msg("it.parent.discuss_course", language, child=child_name, course=course_name))
+
+        # Feedback review
+        fa_recent = await FeedbackAnalysis.find(
+            FeedbackAnalysis.student_id == target_id,
+            FeedbackAnalysis.created_at >= cutoff_7,
+        ).limit(5).to_list()
+        if fa_recent:
+            items.append(_msg("it.parent.review_feedback", language))
+
+        # Workload
+        enrollments = await EnrollmentRepository.list_by_student(target_id)
+        active_enr  = [e for e in enrollments if e.status == EnrollmentStatusEnum.ACTIVE]
+        if len(active_enr) >= 4:
+            items.append(_msg("it.parent.monitor_workload", language))
+
+        if not items:
+            items.append(_msg("it.parent.all_ok", language))
+
+        return {"role": "parent", "child_name": child_name, "items": items[:5], "count": len(items[:5])}
+
+    # ── Teacher ──────────────────────────────────────────────────────────────
+    if current_user.role == RoleEnum.TEACHER:
+        published = await Course.find(
+            Course.teacher_id == str(current_user.id),
+            Course.deleted_at == None,
+            Course.status     == CourseStatusEnum.PUBLISHED,
+        ).to_list()
+
+        if course_id:
+            published = [c for c in published if str(c.id) == course_id]
+
+        if not published:
+            return {"role": "teacher", "items": [_msg("it.teacher.all_ok", language)], "count": 1}
+
+        for course in published[:3]:
+            cid = str(course.id)
+            enrollments = await EnrollmentRepository.list_by_course(cid)
+            active = [e for e in enrollments if e.status == EnrollmentStatusEnum.ACTIVE]
+            if not active:
+                continue
+
+            declining_names: list[str] = []
+            low_att_names:   list[str] = []
+            no_feedback_count = 0
+            needs_attn_count  = 0
+
+            for enr in active[:20]:
+                score = await PerformanceScoreRepository.get(enr.student_id, cid)
+                pred  = await ProgressPredictionRepository.get(enr.student_id, cid)
+                student = await UserRepository.get_by_id(enr.student_id)
+                name = (student.display_name or student.full_name()) if student else enr.student_id
+
+                if score:
+                    cls = score.classification.value if hasattr(score.classification, "value") else score.classification
+                    if cls == "needs_attention":
+                        needs_attn_count += 1
+                    if score.attendance_score < 65:
+                        low_att_names.append(name)
+                    if score.feedback_score == 50.0:
+                        no_feedback_count += 1
+
+                if pred and pred.prediction_label in ("at_risk", "needs_intervention"):
+                    declining_names.append(name)
+
+            if declining_names:
+                names_str = ", ".join(declining_names[:3]) + ("…" if len(declining_names) > 3 else "")
+                items.append(_msg("it.teacher.review_declining", language, names=names_str))
+
+            if no_feedback_count > 0:
+                items.append(_msg("it.teacher.provide_feedback", language, n=no_feedback_count))
+
+            if low_att_names:
+                names_str = ", ".join(low_att_names[:3]) + ("…" if len(low_att_names) > 3 else "")
+                items.append(_msg("it.teacher.check_attendance", language, names=names_str))
+
+            if needs_attn_count > 0 and len(active) > 0 and needs_attn_count / len(active) > 0.3:
+                items.append(_msg("it.teacher.course_attention", language, course=course.name, n=needs_attn_count))
+
+        if not items:
+            items.append(_msg("it.teacher.all_ok", language))
+
+        return {"role": "teacher", "items": items[:5], "count": len(items[:5])}
+
+    # ── Admin ─────────────────────────────────────────────────────────────────
+    if current_user.role == RoleEnum.ADMIN:
+        all_preds     = await ProgressPrediction.find_all().to_list()
+        recent_alerts = await AIAlert.find(AIAlert.created_at >= cutoff_7).to_list()
+        all_courses   = await Course.find(
+            Course.deleted_at == None,
+            Course.status     == CourseStatusEnum.PUBLISHED,
+        ).to_list()
+
+        # High-risk students
+        high_risk_count = len({p.student_id for p in all_preds if p.risk_level == "high"})
+        if high_risk_count > 0:
+            items.append(_msg("it.admin.review_risk", language, n=high_risk_count))
+
+        # Declining courses
+        course_at_risk: dict = {}
+        course_total: dict = {}
+        for p in all_preds:
+            cid = p.course_id
+            course_total[cid] = course_total.get(cid, 0) + 1
+            if p.prediction_label in ("at_risk", "needs_intervention"):
+                course_at_risk[cid] = course_at_risk.get(cid, 0) + 1
+        declining_count = sum(
+            1 for cid, cnt in course_at_risk.items()
+            if course_total.get(cid, 0) > 0 and cnt / course_total[cid] >= 0.4
+        )
+        if declining_count:
+            items.append(_msg("it.admin.check_courses", language, n=declining_count))
+
+        # Recent alerts
+        if recent_alerts:
+            items.append(_msg("it.admin.recent_alerts", language, n=len(recent_alerts)))
+
+        # Teacher overload (3+ active courses)
+        teacher_loads: dict = {}
+        for c in all_courses:
+            teacher_loads[c.teacher_id] = teacher_loads.get(c.teacher_id, 0) + 1
+        overloaded = sum(1 for cnt in teacher_loads.values() if cnt >= 3)
+        if overloaded:
+            items.append(_msg("it.admin.teacher_load", language, n=overloaded))
+
+        if not items:
+            items.append(_msg("it.admin.all_stable", language))
+
+        return {"role": "admin", "items": items[:5], "count": len(items[:5])}
+
+    return {"role": "unknown", "items": [], "count": 0}

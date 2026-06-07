@@ -11,6 +11,7 @@ import { ErrorState } from '../components/widgets/ErrorState';
 import { apiService } from '../services/apiService';
 import { formatActivityDescription } from '../utils/enumLabels';
 import { AIInsightsCard } from '../components/AIInsightsCard';
+import { AIInsightsLayer } from '../components/AIInsightsLayer';
 
 const VALID_TABS = new Set(['overview', 'schedule', 'courses', 'progress', 'history', 'updates']);
 
@@ -330,6 +331,11 @@ export const StudentDashboard: React.FC = () => {
                     loading={dashInsightsLoading}
                     onRefresh={loadDashInsights}
                   />
+
+                  {/* AI Insights Layer: Weekly Summary, Score Explanation, Action Items */}
+                  {user?.id && (
+                    <AIInsightsLayer userId={user.id} showScoreExplain />
+                  )}
                 </div>
               </div>
             </>

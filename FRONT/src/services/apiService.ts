@@ -241,6 +241,14 @@ export const apiService = {
     apiClient.post('/api/ai/suggest-feedback', { ...data, language: getLang() }),
   getDashboardInsights:  () =>
     apiClient.get('/api/ai/dashboard-insights', { params: { language: getLang() } }),
+  getWeeklySummary: (params?: { student_id?: string; course_id?: string }) =>
+    apiClient.get('/api/ai/weekly-summary', { params: { ...params, language: getLang() } }),
+  getScoreExplanation: (studentId: string, courseId?: string) =>
+    apiClient.get(`/api/ai/score-explanation/${studentId}`, {
+      params: { ...(courseId ? { course_id: courseId } : {}), language: getLang() },
+    }),
+  getActionItems: (params?: { student_id?: string; course_id?: string }) =>
+    apiClient.get('/api/ai/action-items', { params: { ...params, language: getLang() } }),
 
   // ── AI Alert interactions ─────────────────────────────────────────────────
   markAlertSeen:         (alertId: string) =>
