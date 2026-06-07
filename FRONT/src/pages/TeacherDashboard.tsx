@@ -430,6 +430,8 @@ export const TeacherDashboard: React.FC = () => {
                       ))}
                     </div>
                   )}
+                </div>
+
                 {/* AI Insights Layer: Weekly Summary, Action Items */}
                 <AIInsightsLayer userId={''} showScoreExplain={false} />
               </div>
